@@ -1,0 +1,48 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml
+
+# Android / Gradle
+.gradle/
+.kotlin/
+build/
+**/build/
+local.properties
+
+# Signing / secrets
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+*.secret
+secrets.*
+keystore.properties
+.env
+.env.*
+!.env.example
+
+# Generated release artifacts
+*.apk
+*.aab
+dist/
+
+# Device and local validation output
+**/device-snapshots/
+**/device_snapshot*.md
+**/device_snapshot*.json
+**/adb-*.log
+**/logcat*.txt
+**/*.db
+**/*.db-shm
+**/*.db-wal
+
+# User-private app data
+*backup*.json
+*history*.json
+*locations*.csv
+*notification*.csv
