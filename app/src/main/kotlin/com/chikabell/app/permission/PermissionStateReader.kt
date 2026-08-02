@@ -19,6 +19,7 @@ class PermissionStateReader(
             backgroundLocation = readBackgroundLocation(),
             locationServices = readLocationServices(),
             googlePlayServices = readGooglePlayServices(),
+            activityRecognition = readActivityRecognition(),
         )
     }
 
@@ -73,6 +74,13 @@ class PermissionStateReader(
                 GooglePlayServicesStatus.UserResolvableError
             else -> GooglePlayServicesStatus.Unavailable
         }
+    }
+
+    private fun readActivityRecognition(): ActivityRecognitionStatus {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return ActivityRecognitionStatus.NotRequired
+        return if (hasPermission(Manifest.permission.ACTIVITY_RECOGNITION)) {
+            ActivityRecognitionStatus.Granted
+        } else ActivityRecognitionStatus.Denied
     }
 
     private fun hasPermission(permission: String): Boolean {

@@ -161,4 +161,100 @@ interface LocationDao {
         notifiedAt: Long,
         updatedAt: Long,
     )
+
+    @Query(
+        """
+        UPDATE locations
+        SET nearbyState = :state,
+            snoozedUntil = :snoozedUntil,
+            lastVerificationAt = :verifiedAt,
+            lastValidLocationAt = COALESCE(:lastValidLocationAt, lastValidLocationAt),
+            lastVerificationReason = :verificationReason,
+            lastSuppressionReason = :suppressionReason,
+            lastAccuracyMeters = :accuracyMeters,
+            lastSpeedMetersPerSecond = :speedMetersPerSecond,
+            lastNotificationDistanceMeters = :notificationDistanceMeters,
+            updatedAt = :updatedAt
+        WHERE id = :id
+          AND (
+            nearbyState != 'SNOOZED'
+            OR snoozedUntil IS NULL
+            OR snoozedUntil <= :updatedAt
+          )
+        """,
+    )
+    suspend fun updateNearbyState(
+        id: String,
+        state: String,
+        snoozedUntil: Long?,
+        verifiedAt: Long?,
+        lastValidLocationAt: Long?,
+        verificationReason: String?,
+        suppressionReason: String?,
+        accuracyMeters: Float?,
+        speedMetersPerSecond: Float?,
+        notificationDistanceMeters: Float?,
+        updatedAt: Long,
+    )
+
+    @Query(
+        """
+        UPDATE locations
+        SET nearbyState = 'VERIFYING',
+            lastVerificationAt = :verifiedAt,
+            lastVerificationReason = :reason,
+            lastSuppressionReason = NULL,
+            updatedAt = :verifiedAt
+        WHERE id = :id AND nearbyState = 'MONITORING'
+        """,
+    )
+    suspend fun claimVerification(id: String, verifiedAt: Long, reason: String): Int
+
+    @Query(
+        """
+        UPDATE locations
+        SET nearbyState = 'SNOOZED',
+            snoozedUntil = :snoozedUntil,
+            lastSuppressionReason = '12時間休止中です',
+            updatedAt = :updatedAt
+        WHERE id IN (:ids)
+        """,
+    )
+    suspend fun snooze(ids: List<String>, snoozedUntil: Long, updatedAt: Long)
+
+    @Query(
+        """
+        UPDATE locations
+        SET nearbyState = 'MONITORING',
+            snoozedUntil = NULL,
+            lastSuppressionReason = NULL,
+            updatedAt = :updatedAt
+        WHERE id = :id
+        """,
+    )
+    suspend fun clearSnooze(id: String, updatedAt: Long)
+
+    @Query(
+        """
+        UPDATE locations
+        SET nearbyState = 'MONITORING',
+            snoozedUntil = NULL,
+            lastSuppressionReason = NULL,
+            updatedAt = :now
+        WHERE nearbyState = 'SNOOZED' AND snoozedUntil IS NOT NULL AND snoozedUntil <= :now
+        """,
+    )
+    suspend fun clearExpiredSnoozes(now: Long): Int
+
+    @Query(
+        """
+        UPDATE locations
+        SET nearbyState = 'MONITORING',
+            lastSuppressionReason = '中断された短時間検証を通常監視へ戻しました',
+            updatedAt = :now
+        WHERE nearbyState = 'VERIFYING'
+          AND (lastVerificationAt IS NULL OR lastVerificationAt <= :cutoff)
+        """,
+    )
+    suspend fun recoverStaleVerifications(cutoff: Long, now: Long): Int
 }

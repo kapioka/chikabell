@@ -16,6 +16,17 @@ import org.junit.Test
 
 class LocationTransferCodecTest {
     @Test
+    fun rejectsCsvWithMoreThanSupportedColumnsDuringTokenization() {
+        val content = (1..13).joinToString(",") { "column$it" }
+
+        val result = LocationTransferCodec.parseCsv(content)
+
+        assertTrue(result is TransferParseResult.Failure)
+        val failure = result as TransferParseResult.Failure
+        assertTrue(failure.message.contains("列数"))
+    }
+
+    @Test
     fun jsonRoundTripKeepsLocationValues() {
         val exported = LocationTransferCodec.exportJson(listOf(location(message = "メモ\n2行目")), 123L, "0.1.0")
         val parsed = LocationTransferCodec.parseJson(exported) as TransferParseResult.Success
@@ -34,6 +45,53 @@ class LocationTransferCodecTest {
         assertTrue(exported.startsWith("\uFEFF"))
         assertEquals("店,\"A\"", parsed.records.single().name)
         assertEquals("1行\n2行", parsed.records.single().message)
+    }
+
+    @Test
+    fun csvExportNeutralizesSpreadsheetFormulaMarkersInTextCells() {
+        val exported = LocationTransferCodec.exportCsv(
+            listOf(
+                location(id = "=id", name = "=cmd", message = "+cmd"),
+                location(id = "-id", name = "  -cmd", message = "@cmd", longitude = -135.0),
+            )
+        )
+        val parsed = LocationTransferCodec.parseCsv(exported) as TransferParseResult.Success
+
+        assertTrue(exported.contains("'=id,'=cmd"))
+        assertTrue(exported.contains("'-id,'  -cmd"))
+        assertTrue(exported.contains("'+cmd"))
+        assertTrue(exported.contains("'@cmd"))
+        assertEquals(-135.0, parsed.records.last().longitude, 0.0)
+    }
+
+    @Test
+    fun csvRejectsRowsBeyondLimitDuringTokenization() {
+        val header = "name,latitude,longitude,radiusMeters,message,cooldownMinutes,transitionType,enabled"
+        val row = "A,34,135,300,m,60,DWELL,true"
+        val csv = buildString {
+            appendLine(header)
+            repeat(LocationTransferCodec.MAX_ROWS + 1) { appendLine(row) }
+        }
+
+        val failure = LocationTransferCodec.parseCsv(csv) as TransferParseResult.Failure
+
+        assertTrue(failure.message.contains("${LocationTransferCodec.MAX_ROWS}件"))
+    }
+
+    @Test
+    fun jsonRejectsLocationsBeyondLimitBeforeTreeParsing() {
+        val json = buildString {
+            append("{\"schemaVersion\":2,\"loc\\u0061tions\":[")
+            repeat(LocationTransferCodec.MAX_ROWS + 1) { index ->
+                if (index > 0) append(',')
+                append("{}")
+            }
+            append("]}")
+        }
+
+        val failure = LocationTransferCodec.parseJson(json) as TransferParseResult.Failure
+
+        assertTrue(failure.message.contains("${LocationTransferCodec.MAX_ROWS}件"))
     }
 
     @Test
@@ -90,12 +148,13 @@ class LocationTransferCodecTest {
         name: String = "地点",
         message: String = "メモ",
         latitude: Double = 34.1,
+        longitude: Double = 135.0,
     ) = SavedLocation(
         id = id,
         name = name,
         message = message,
         latitude = latitude,
-        longitude = 135.0,
+        longitude = longitude,
         radiusMeters = 300,
         transitionType = TransitionType.DWELL,
         loiteringDelayMs = 60_000,

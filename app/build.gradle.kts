@@ -63,6 +63,10 @@ android {
         compose = true
         buildConfig = true
     }
+
+    sourceSets {
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
 }
 
 tasks.register("printReleaseSigningStatus") {
@@ -123,18 +127,29 @@ val allJvmUnitTests = tasks.register<JavaExec>("allJvmUnitTests") {
         "com.chikabell.app.DistanceCalculatorTest",
         "com.chikabell.app.RestorePolicyTest",
         "com.chikabell.app.SharedPlaceParserTest",
+        "com.chikabell.app.SharedPlaceReviewPolicyTest",
         "com.chikabell.app.LocationTransferCodecTest",
         "com.chikabell.app.CooldownHoursTest",
         "com.chikabell.app.GoogleMapsShortLinkResolverTest",
         "com.chikabell.app.DestinationGuidanceFormatterTest",
+        "com.chikabell.app.NearbyVerificationPolicyTest",
+        "com.chikabell.app.ProcessGeofenceEventUseCaseTest",
+        "com.chikabell.app.GeofenceEventBatchProcessorTest",
+        "com.chikabell.app.NearbyNotificationContentFormatterTest",
+        "com.chikabell.app.LocationDetailsExpansionStateTest",
+        "com.chikabell.app.FindNearbySavedLocationsUseCaseTest",
+        "com.chikabell.app.SharedRegistrationSessionTest",
+        "com.chikabell.app.OpenLocationCodeDecoderTest",
+        "com.chikabell.app.PngTextMetadataExtractorTest",
+        "com.chikabell.app.SharedRegistrationReducerTest",
+        "com.chikabell.app.SendTestNotificationUseCaseTest",
     )
 }
 
 // The generated Test worker mojibakes this workspace's Japanese path on Windows.
 // Keep the standard command as the entry point while the stable runner executes the tests.
 tasks.withType<Test>().configureEach {
-    val isWindows = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
-    if (isWindows && name == "testDebugUnitTest") {
+    if (name == "testDebugUnitTest") {
         dependsOn(allJvmUnitTests)
         filter {
             includeTestsMatching("com.chikabell.app.__UnicodePathWorkaround__")

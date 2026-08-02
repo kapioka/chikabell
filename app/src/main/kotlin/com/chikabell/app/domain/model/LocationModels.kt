@@ -24,6 +24,15 @@ data class SavedLocation(
     val lastRegisteredAt: Long?,
     val sortOrder: Long,
     val registrationGenerationId: String? = null,
+    val nearbyState: NearbyState = NearbyState.MONITORING,
+    val snoozedUntil: Long? = null,
+    val lastVerificationAt: Long? = null,
+    val lastValidLocationAt: Long? = null,
+    val lastVerificationReason: String? = null,
+    val lastSuppressionReason: String? = null,
+    val lastAccuracyMeters: Float? = null,
+    val lastSpeedMetersPerSecond: Float? = null,
+    val lastNotificationDistanceMeters: Float? = null,
     val tags: List<LocationTag> = emptyList(),
 )
 
@@ -67,6 +76,13 @@ enum class RegistrationStatus {
     PENDING,
     REGISTERED,
     ERROR,
+}
+
+enum class NearbyState {
+    MONITORING,
+    VERIFYING,
+    REARM_WAIT,
+    SNOOZED,
 }
 
 object LocationNotificationDefaults {

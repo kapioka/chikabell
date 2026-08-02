@@ -11,10 +11,10 @@ public class DistanceCalculatorTest {
     public void samePointIsWithinRadius() {
         assertTrue(
                 DistanceCalculator.INSTANCE.isWithinRadius(
-                        35.0,
-                        135.0,
-                        35.0,
-                        135.0,
+                        34.71777884558219,
+                        135.60471137023873,
+                        34.71777884558219,
+                        135.60471137023873,
                         300
                 )
         );
@@ -24,10 +24,10 @@ public class DistanceCalculatorTest {
     public void distantPointIsOutsideSmallRadius() {
         assertFalse(
                 DistanceCalculator.INSTANCE.isWithinRadius(
-                        35.0,
-                        135.0,
-                        35.003,
-                        135.003,
+                        34.71777884558219,
+                        135.60471137023873,
+                        34.72077884558219,
+                        135.60771137023873,
                         100
                 )
         );

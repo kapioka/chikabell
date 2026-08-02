@@ -1,11 +1,5 @@
-# コントリビューション
+# コントリビューション方針
 
-IssueやPull Requestへ、実際の住所、座標、共有URL、バックアップ、通知履歴、端末snapshot、端末シリアルを含めないでください。テストには架空の地点名と公開して差し支えないサンプル座標だけを使用してください。
+本リポジトリは個人開発アプリのソース公開用です。GitHub IssuesおよびPull Requestは受け付けていません。
 
-変更前後に次を実行してください。
-
-```powershell
-.\gradlew.bat testDebugUnitTest lintDebug assembleDebug
-```
-
-署名鍵、keystore、ローカルSDKパス、生成APKはコミットしないでください。
+ソースコードは現状のまま公開し、動作保証、個別サポート、継続的な更新、不具合修正を約束するものではありません。

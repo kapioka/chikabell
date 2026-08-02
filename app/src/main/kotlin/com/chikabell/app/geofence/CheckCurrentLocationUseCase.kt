@@ -5,7 +5,7 @@ import com.chikabell.app.domain.repository.LocationRepository
 
 class CheckCurrentLocationUseCase(
     private val locationRepository: LocationRepository,
-    private val currentLocationReader: CurrentLocationReader,
+    private val currentLocationReader: CurrentLocationSource,
 ) {
     suspend fun execute(): CurrentLocationCheckResult {
         val currentLocations = try {

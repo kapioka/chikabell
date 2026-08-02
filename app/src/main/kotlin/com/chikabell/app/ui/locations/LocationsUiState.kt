@@ -11,6 +11,11 @@ import com.chikabell.app.domain.model.SourceType
 import com.chikabell.app.importexport.LocationImportPreview
 import com.chikabell.app.domain.model.HistoryFilter
 import com.chikabell.app.domain.model.LocationTag
+import com.chikabell.app.geofence.ActivitySnapshot
+import com.chikabell.app.geofence.NearbyDistanceFilter
+import com.chikabell.app.geofence.NearbySavedLocationsResult
+import com.chikabell.app.share.ParsedSharedPlace
+import com.chikabell.app.share.AddressCoordinateCandidate
 
 data class LocationsUiState(
     val locations: List<SavedLocation> = emptyList(),
@@ -24,11 +29,24 @@ data class LocationsUiState(
     val validationMessage: String? = null,
     val permissionSnapshot: PermissionSnapshot? = null,
     val backgroundRestriction: BackgroundRestrictionSnapshot? = null,
+    val activitySnapshot: ActivitySnapshot? = null,
     val registrationMessage: String? = null,
     val isRegisteringGeofences: Boolean = false,
     val isSaving: Boolean = false,
+    val saveSuccessId: Long = 0L,
     val importPreview: LocationImportPreview? = null,
     val isImporting: Boolean = false,
+    val nearbySearch: NearbySearchUiState = NearbySearchUiState.Hidden,
+    val nearbyDistanceFilter: NearbyDistanceFilter = NearbyDistanceFilter.WITHIN_5_KM,
+    val sharedPlace: ParsedSharedPlace? = null,
+    val sharedPlaceCandidateConfirmed: Boolean = false,
+    val sharedPlaceCoordinatesManuallyEdited: Boolean = false,
+    val sharedRegistrationSession: SharedRegistrationSession? = null,
+    val showDiscardRegistrationDialog: Boolean = false,
+    val showStartNewRegistrationDialog: Boolean = false,
+    val isAddressSearching: Boolean = false,
+    val addressCandidates: List<AddressCoordinateCandidate> = emptyList(),
+    val addressSearchMessage: String? = null,
 ) {
     val tags: List<LocationTag>
         get() = locations
@@ -38,9 +56,20 @@ data class LocationsUiState(
             .sortedWith(compareByDescending<LocationTag> { it.usageCount }.thenBy { it.name })
 }
 
+sealed interface NearbySearchUiState {
+    data object Hidden : NearbySearchUiState
+    data object Loading : NearbySearchUiState
+    data object PermissionRequired : NearbySearchUiState
+    data object LocationServicesDisabled : NearbySearchUiState
+    data object LocationUnavailable : NearbySearchUiState
+    data object NoSavedLocations : NearbySearchUiState
+    data class Results(val result: NearbySavedLocationsResult.Success) : NearbySearchUiState
+}
+
 data class LocationFormState(
     val name: String = "",
     val message: String = "",
+    val address: String = "",
     val latitude: String = "",
     val longitude: String = "",
     val radiusMeters: String = "300",

@@ -33,7 +33,7 @@ import com.chikabell.app.domain.model.LocationNotificationDefaults
         TagEntity::class,
         LocationTagCrossRef::class,
     ],
-    version = 10,
+    version = 12,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -302,6 +302,23 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_notification_history_registrationGenerationId` ON `notification_history` (`registrationGenerationId`)")
             }
         }
+        internal val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `locations` ADD COLUMN `nearbyState` TEXT NOT NULL DEFAULT 'MONITORING'")
+                db.execSQL("ALTER TABLE `locations` ADD COLUMN `snoozedUntil` INTEGER")
+                db.execSQL("ALTER TABLE `locations` ADD COLUMN `lastVerificationAt` INTEGER")
+                db.execSQL("ALTER TABLE `locations` ADD COLUMN `lastVerificationReason` TEXT")
+                db.execSQL("ALTER TABLE `locations` ADD COLUMN `lastSuppressionReason` TEXT")
+                db.execSQL("ALTER TABLE `locations` ADD COLUMN `lastAccuracyMeters` REAL")
+                db.execSQL("ALTER TABLE `locations` ADD COLUMN `lastSpeedMetersPerSecond` REAL")
+                db.execSQL("ALTER TABLE `locations` ADD COLUMN `lastNotificationDistanceMeters` REAL")
+            }
+        }
+        internal val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `locations` ADD COLUMN `lastValidLocationAt` INTEGER")
+            }
+        }
 
         fun create(context: Context): AppDatabase {
             return Room.databaseBuilder(
@@ -319,6 +336,8 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_7_8,
                     MIGRATION_8_9,
                     MIGRATION_9_10,
+                    MIGRATION_10_11,
+                    MIGRATION_11_12,
                 )
                 .build()
         }

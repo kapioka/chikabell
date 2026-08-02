@@ -27,11 +27,10 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
     private suspend fun processIntent(app: ChikaBellApplication, intent: Intent) {
         if (intent.action == ACTION_DEBUG_ENTER) {
             val requestId = intent.getStringExtra(EXTRA_REQUEST_ID) ?: return
-            app.container.processGeofenceEventUseCase.execute(
-                requestId = requestId,
-                transitionType = TransitionType.DWELL,
-                eventAt = System.currentTimeMillis(),
-            )
+            val eventAt = System.currentTimeMillis()
+            if (!NearbyVerificationService.start(app, listOf(requestId), TransitionType.DWELL, eventAt)) {
+                app.container.processGeofenceEventUseCase.execute(requestId, TransitionType.DWELL, eventAt)
+            }
             return
         }
 
@@ -42,9 +41,13 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         }
         val transition = geofencingEvent.geofenceTransition.toTransitionType() ?: return
         val eventAt = System.currentTimeMillis()
-        geofencingEvent.triggeringGeofences.orEmpty().forEach { geofence ->
+        val requestIds = geofencingEvent.triggeringGeofences.orEmpty().map { it.requestId }
+        if (transition != TransitionType.EXIT &&
+            NearbyVerificationService.start(app, requestIds, transition, eventAt)
+        ) return
+        requestIds.forEach { requestId ->
             app.container.processGeofenceEventUseCase.execute(
-                requestId = geofence.requestId,
+                requestId = requestId,
                 transitionType = transition,
                 eventAt = eventAt,
             )

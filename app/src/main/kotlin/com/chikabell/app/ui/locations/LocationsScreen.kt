@@ -7,8 +7,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -16,20 +18,27 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MoreVert
@@ -38,9 +47,11 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -49,11 +60,13 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -68,12 +81,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import com.chikabell.app.BuildConfig
 import com.chikabell.app.domain.model.DeliveryStatus
 import com.chikabell.app.domain.model.NotificationHistory
@@ -83,19 +100,96 @@ import com.chikabell.app.domain.model.RegistrationStatus
 import com.chikabell.app.domain.model.RestoreAttemptResult
 import com.chikabell.app.domain.model.RestoreTrigger
 import com.chikabell.app.domain.model.SavedLocation
+import com.chikabell.app.domain.model.NearbyState
 import com.chikabell.app.domain.model.SourceType
 import com.chikabell.app.domain.model.TagRules
+import com.chikabell.app.geofence.NearbyDistanceFilter
+import com.chikabell.app.geofence.NearbySavedLocationCandidate
+import com.chikabell.app.geofence.formatApproxStraightLineDistance
+import com.chikabell.app.geofence.selectNearbyCandidates
 import com.chikabell.app.permission.BackgroundLocationStatus
+import com.chikabell.app.permission.ActivityRecognitionStatus
 import com.chikabell.app.permission.ForegroundLocationStatus
 import com.chikabell.app.permission.GooglePlayServicesStatus
 import com.chikabell.app.permission.LocationServicesStatus
 import com.chikabell.app.permission.NotificationPermissionStatus
 import com.chikabell.app.permission.PermissionSnapshot
+import com.chikabell.app.share.SharedPlaceConfidence
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 private enum class AppScreen { LOCATIONS, HISTORY, SETTINGS, LOCATION_EDIT, PRESETS, DATA }
+
+internal enum class LocationSortMode(val label: String) {
+    REGISTRATION("登録順"),
+    RECENTLY_UPDATED("最近更新順"),
+    DISTANCE("距離順"),
+    ;
+
+    fun next(): LocationSortMode = entries[(ordinal + 1) % entries.size]
+}
+
+internal fun shouldUseSingleRowNotificationSettings(
+    availableWidthDp: Float,
+    fontScale: Float,
+): Boolean = availableWidthDp >= 320f && fontScale <= 1.3f
+
+internal fun shouldStackCoordinateFields(
+    availableWidthDp: Float,
+    fontScale: Float,
+): Boolean = availableWidthDp < 600f || fontScale > 1.3f
+
+internal fun sharedPlaceReviewTitle(
+    confidence: SharedPlaceConfidence,
+    addressCandidateCount: Int,
+    isAddressSearching: Boolean,
+    candidateConfirmed: Boolean,
+    coordinatesManuallyEdited: Boolean,
+): String = when {
+    isAddressSearching -> "位置候補を検索中"
+    candidateConfirmed || coordinatesManuallyEdited -> "位置を確認しました"
+    confidence == SharedPlaceConfidence.RESOLVING -> "共有リンクを確認中"
+    confidence == SharedPlaceConfidence.HIGH_CONFIDENCE -> "位置を取得しました"
+    confidence == SharedPlaceConfidence.NEEDS_CONFIRMATION -> "位置候補の確認が必要です"
+    confidence == SharedPlaceConfidence.UNRESOLVED && addressCandidateCount > 0 ->
+        "位置候補が${addressCandidateCount}件見つかりました"
+    confidence == SharedPlaceConfidence.UNRESOLVED -> "位置を設定できませんでした"
+    else -> "共有リンクを確認できませんでした"
+}
+
+internal fun locationSaveGuidance(blockReason: LocationSaveBlockReason): String = when (blockReason) {
+    LocationSaveBlockReason.MISSING_COORDINATES -> "保存するには位置を設定してください"
+    LocationSaveBlockReason.INVALID_COORDINATES -> "緯度・経度の入力を確認してください"
+    LocationSaveBlockReason.CANDIDATE_CONFIRMATION_REQUIRED -> "保存するには位置を確定してください"
+}
+
+internal fun sortSavedLocations(
+    locations: List<SavedLocation>,
+    mode: LocationSortMode,
+    distancesByLocationId: Map<String, Float> = emptyMap(),
+): List<SavedLocation> = when (mode) {
+    LocationSortMode.REGISTRATION -> locations.sortedBy(SavedLocation::sortOrder)
+    LocationSortMode.RECENTLY_UPDATED -> locations.sortedByDescending(SavedLocation::updatedAt)
+    LocationSortMode.DISTANCE -> locations.sortedWith(
+        compareBy<SavedLocation> { distancesByLocationId[it.id] ?: Float.POSITIVE_INFINITY }
+            .thenBy(SavedLocation::sortOrder),
+    )
+}
+
+internal fun toggleLocationDetailsExpansion(
+    expandedLocationIds: Set<String>,
+    locationId: String,
+): Set<String> = if (locationId in expandedLocationIds) {
+    expandedLocationIds - locationId
+} else {
+    expandedLocationIds + locationId
+}
+
+internal fun retainExistingLocationDetailsExpansion(
+    expandedLocationIds: Set<String>,
+    existingLocationIds: Set<String>,
+): Set<String> = expandedLocationIds.intersect(existingLocationIds)
 
 @Composable
 fun LocationsScreen(
@@ -109,15 +203,18 @@ fun LocationsScreen(
     onDelete: (SavedLocation) -> Unit,
     onDeleteSelected: (Set<String>) -> Unit,
     onSetLocationsEnabled: (Set<String>, Boolean) -> Unit,
+    onClearSnooze: (String) -> Unit,
     onCancelEdit: () -> Unit,
     onRefreshPermissions: () -> Unit,
     onRequestForegroundLocation: () -> Unit,
     onRequestNotification: () -> Unit,
+    onRequestActivityRecognition: () -> Unit,
     onOpenAppSettings: () -> Unit,
     onRegisterGeofences: () -> Unit,
     onRestoreGeofences: () -> Unit,
     onSendTestEnterEvent: () -> Unit,
-    onCheckCurrentLocation: () -> Unit,
+    onFindNearbySavedLocations: () -> Unit,
+    onCloseNearbySavedLocations: () -> Unit,
     onExportJson: () -> Unit,
     onExportCsv: () -> Unit,
     onImportJson: () -> Unit,
@@ -126,19 +223,35 @@ fun LocationsScreen(
     onCancelImport: () -> Unit,
     onHistoryFilterChange: (HistoryFilter) -> Unit,
     onDeleteAllHistory: () -> Unit,
+    onSelectSharedPlaceCandidate: (Int) -> Unit,
+    onConfirmSharedPlaceCandidateAndSave: () -> Unit,
+    onOpenSharedPlaceMap: () -> Unit,
+    onOpenSharedPlaceQueryMap: () -> Unit,
+    onSearchAddressCandidates: () -> Unit,
+    onSelectAddressCandidate: (Int) -> Unit,
+    onMergePendingSharedPlace: () -> Unit,
+    onStartNewFromPendingSharedPlace: () -> Unit,
+    onDismissStartNewRegistration: () -> Unit,
+    onConfirmStartNewFromPendingSharedPlace: () -> Unit,
+    onDismissPendingSharedPlace: () -> Unit,
+    onDismissDiscardRegistration: () -> Unit,
+    onDiscardRegistration: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var screenName by rememberSaveable { mutableStateOf(AppScreen.LOCATIONS.name) }
     val screen = AppScreen.valueOf(screenName)
-    var saveRequested by rememberSaveable { mutableStateOf(false) }
+    var saveRequestBaseline by rememberSaveable { mutableStateOf<Long?>(null) }
     var showRepairDialog by rememberSaveable { mutableStateOf(false) }
     var continuousEditIds by remember { mutableStateOf(emptyList<String>()) }
     var continuousEditIndex by rememberSaveable { mutableStateOf(0) }
 
     fun navigate(next: AppScreen) { screenName = next.name }
     fun navigateHome() {
+        saveRequestBaseline = null
         onCancelEdit()
-        screenName = AppScreen.LOCATIONS.name
+        if (uiState.sharedRegistrationSession == null) {
+            screenName = AppScreen.LOCATIONS.name
+        }
     }
 
     BackHandler(enabled = screen !in listOf(AppScreen.LOCATIONS, AppScreen.HISTORY, AppScreen.SETTINGS)) {
@@ -149,16 +262,96 @@ fun LocationsScreen(
         }
     }
 
-    LaunchedEffect(uiState.form.sourceType, uiState.form.sourceUrl) {
+    LaunchedEffect(
+        uiState.form.sourceType,
+        uiState.form.sourceUrl,
+        uiState.sharedPlace,
+        uiState.sharedRegistrationSession,
+    ) {
         if (uiState.form.sourceType == SourceType.MAP_SHARE &&
-            (uiState.form.name.isNotBlank() || uiState.form.sourceUrl != null)
+            uiState.sharedPlace != null
         ) {
             navigate(AppScreen.LOCATION_EDIT)
         }
     }
-    LaunchedEffect(uiState.isSaving, uiState.editingLocation, uiState.form.name) {
-        if (saveRequested && !uiState.isSaving && uiState.editingLocation == null && uiState.form.name.isBlank()) {
-            saveRequested = false
+
+    uiState.sharedRegistrationSession?.pendingIncomingShare
+        ?.takeUnless { uiState.showStartNewRegistrationDialog }
+        ?.let { pending ->
+        AlertDialog(
+            onDismissRequest = onDismissPendingSharedPlace,
+            title = { Text("登録途中の地点があります") },
+            text = {
+                Text(
+                    "今回共有された「${sharedPlaceDraftLabel(pending.place).ifBlank { "位置情報" }}」を、" +
+                        "現在の登録へ追加しますか？",
+                )
+            },
+            confirmButton = {
+                Button(onClick = onMergePendingSharedPlace) {
+                    Text("現在の登録に追加")
+                }
+            },
+            dismissButton = {
+                Column(horizontalAlignment = Alignment.End) {
+                    TextButton(onClick = onStartNewFromPendingSharedPlace) {
+                        Text("新しい地点として登録")
+                    }
+                    TextButton(onClick = onDismissPendingSharedPlace) {
+                        Text("キャンセル")
+                    }
+                }
+            },
+        )
+    }
+
+    if (uiState.showStartNewRegistrationDialog) {
+        AlertDialog(
+            onDismissRequest = onDismissStartNewRegistration,
+            title = { Text("現在の入力を破棄しますか？") },
+            text = { Text("現在編集中の名前、メモ、タグ、通知設定、位置候補を破棄し、今回共有された地点を新しく登録します。") },
+            confirmButton = {
+                Button(onClick = onConfirmStartNewFromPendingSharedPlace) {
+                    Text("破棄して新規登録")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissStartNewRegistration) {
+                    Text("戻る")
+                }
+            },
+        )
+    }
+
+    if (uiState.showDiscardRegistrationDialog) {
+        AlertDialog(
+            onDismissRequest = onDismissDiscardRegistration,
+            title = { Text("登録を中止しますか？") },
+            text = { Text("入力した名前、メモ、タグ、通知設定、位置候補は破棄されます。") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDiscardRegistration()
+                        screenName = AppScreen.LOCATIONS.name
+                    },
+                ) {
+                    Text("破棄する")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissDiscardRegistration) {
+                    Text("登録を続ける")
+                }
+            },
+        )
+    }
+    LaunchedEffect(uiState.saveSuccessId) {
+        val baseline = saveRequestBaseline
+        if (baseline != null && uiState.saveSuccessId > baseline) {
+            saveRequestBaseline = null
+            if (uiState.form.hasUserAuthoredLocationDraft() || uiState.sharedRegistrationSession != null) {
+                return@LaunchedEffect
+            }
             val nextIndex = continuousEditIndex + 1
             val next = continuousEditIds.getOrNull(nextIndex)?.let { id -> uiState.locations.firstOrNull { it.id == id } }
             if (next != null) {
@@ -201,6 +394,7 @@ fun LocationsScreen(
             onDelete = onDelete,
             onDeleteSelected = onDeleteSelected,
             onSetLocationsEnabled = onSetLocationsEnabled,
+            onClearSnooze = onClearSnooze,
             onStartContinuousEdit = { locations ->
                 if (locations.isNotEmpty()) {
                     continuousEditIds = locations.map(SavedLocation::id)
@@ -210,7 +404,8 @@ fun LocationsScreen(
                 }
             },
             onFormChange = onFormChange,
-            onCheckCurrentLocation = onCheckCurrentLocation,
+            onFindNearbySavedLocations = onFindNearbySavedLocations,
+            onCloseNearbySavedLocations = onCloseNearbySavedLocations,
             modifier = modifier,
         )
         AppScreen.HISTORY -> MainScaffold(
@@ -236,6 +431,7 @@ fun LocationsScreen(
                 onRefreshPermissions = onRefreshPermissions,
                 onRequestForegroundLocation = onRequestForegroundLocation,
                 onRequestNotification = onRequestNotification,
+                onRequestActivityRecognition = onRequestActivityRecognition,
                 onOpenAppSettings = onOpenAppSettings,
                 onRegisterGeofences = onRegisterGeofences,
                 onRepair = { showRepairDialog = true },
@@ -249,10 +445,20 @@ fun LocationsScreen(
             onBack = ::navigateHome,
             onFormChange = onFormChange,
             onApplyPreset = onApplyPreset,
+            onSelectSharedPlaceCandidate = onSelectSharedPlaceCandidate,
+            onConfirmSharedPlaceCandidateAndSave = {
+                saveRequestBaseline = uiState.saveSuccessId
+                onConfirmSharedPlaceCandidateAndSave()
+            },
+            onOpenSharedPlaceMap = onOpenSharedPlaceMap,
+            onOpenSharedPlaceQueryMap = onOpenSharedPlaceQueryMap,
+            onSearchAddressCandidates = onSearchAddressCandidates,
+            onSelectAddressCandidate = onSelectAddressCandidate,
             onSave = {
-                saveRequested = true
+                saveRequestBaseline = uiState.saveSuccessId
                 onSave()
             },
+            scrollToSharedPlaceOnError = saveRequestBaseline != null,
             continuousProgress = continuousEditIds.takeIf { it.isNotEmpty() }?.let { continuousEditIndex + 1 to it.size },
             modifier = modifier,
         )
@@ -319,20 +525,31 @@ private fun LocationsHomeScreen(
     onDelete: (SavedLocation) -> Unit,
     onDeleteSelected: (Set<String>) -> Unit,
     onSetLocationsEnabled: (Set<String>, Boolean) -> Unit,
+    onClearSnooze: (String) -> Unit,
     onStartContinuousEdit: (List<SavedLocation>) -> Unit,
     onFormChange: (LocationFormState) -> Unit,
-    onCheckCurrentLocation: () -> Unit,
+    onFindNearbySavedLocations: () -> Unit,
+    onCloseNearbySavedLocations: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
-    var descending by rememberSaveable { mutableStateOf(false) }
+    var sortModeName by rememberSaveable { mutableStateOf(LocationSortMode.REGISTRATION.name) }
+    val sortMode = LocationSortMode.valueOf(sortModeName)
     var pendingDelete by remember { mutableStateOf<SavedLocation?>(null) }
     var selectedIds by remember { mutableStateOf(setOf<String>()) }
+    var expandedLocationIds by remember { mutableStateOf(setOf<String>()) }
     var showBatchDeleteDialog by rememberSaveable { mutableStateOf(false) }
-    val filtered = remember(uiState.locations, query, descending) {
+    val distancesByLocationId = remember(uiState.nearbySearch) {
+        (uiState.nearbySearch as? NearbySearchUiState.Results)
+            ?.result
+            ?.candidates
+            ?.associate { it.location.id to it.distanceMeters }
+            .orEmpty()
+    }
+    val filtered = remember(uiState.locations, query, sortMode, distancesByLocationId) {
         val normalizedQuery = TagRules.normalize(query)
         val tagOnly = query.trim().startsWith("#")
-        uiState.locations
+        val matchingLocations = uiState.locations
             .filter { location ->
                 query.isBlank() ||
                     if (tagOnly) {
@@ -343,7 +560,7 @@ private fun LocationsHomeScreen(
                             location.tags.any { tag -> tag.normalizedName.contains(normalizedQuery) || tag.name.contains(query, true) }
                     }
             }
-            .let { if (descending) it.sortedByDescending(SavedLocation::updatedAt) else it.sortedBy(SavedLocation::sortOrder) }
+        sortSavedLocations(matchingLocations, sortMode, distancesByLocationId)
     }
     val tagSuggestions = remember(uiState.tags, query) {
         val trimmed = query.trim()
@@ -355,6 +572,13 @@ private fun LocationsHomeScreen(
                 .filter { tag -> trimmed == "#" || tag.normalizedName.contains(normalizedQuery) || tag.name.contains(trimmed.removePrefix("#"), true) }
                 .take(8)
         }
+    }
+    val existingLocationIds = remember(uiState.locations) { uiState.locations.mapTo(mutableSetOf(), SavedLocation::id) }
+    LaunchedEffect(existingLocationIds) {
+        expandedLocationIds = retainExistingLocationDetailsExpansion(
+            expandedLocationIds = expandedLocationIds,
+            existingLocationIds = existingLocationIds,
+        )
     }
 
     pendingDelete?.let { location ->
@@ -386,7 +610,6 @@ private fun LocationsHomeScreen(
             dismissButton = { TextButton(onClick = { showBatchDeleteDialog = false }) { Text("キャンセル") } },
         )
     }
-
     Scaffold(
         modifier = modifier,
         bottomBar = { BottomNavigation(AppScreen.LOCATIONS, onNavigate) },
@@ -453,8 +676,24 @@ private fun LocationsHomeScreen(
                         label = { Text("地点名・メモ・タグで検索") },
                         singleLine = true,
                     )
-                    OutlinedButton(onClick = { descending = !descending }) {
-                        Text(if (descending) "更新順" else "登録順")
+                    OutlinedButton(
+                        onClick = {
+                            val nextMode = sortMode.next()
+                            sortModeName = nextMode.name
+                            if (nextMode == LocationSortMode.DISTANCE) {
+                                onFindNearbySavedLocations()
+                            } else if (sortMode == LocationSortMode.DISTANCE) {
+                                onCloseNearbySavedLocations()
+                            }
+                        },
+                    ) {
+                        Text(
+                            if (sortMode == LocationSortMode.DISTANCE && uiState.nearbySearch is NearbySearchUiState.Loading) {
+                                "距離取得中"
+                            } else {
+                                sortMode.label
+                            },
+                        )
                     }
                 }
                 if (tagSuggestions.isNotEmpty()) {
@@ -471,7 +710,28 @@ private fun LocationsHomeScreen(
                     }
                 }
             }
-            TextButton(onClick = onCheckCurrentLocation) { Text("現在地をチェック") }
+            if (sortMode == LocationSortMode.DISTANCE) {
+                when (val nearbySearch = uiState.nearbySearch) {
+                    NearbySearchUiState.Hidden,
+                    NearbySearchUiState.Loading,
+                    -> Unit
+                    NearbySearchUiState.PermissionRequired -> FeedbackText("距離順には位置情報の権限が必要です")
+                    NearbySearchUiState.LocationServicesDisabled -> FeedbackText("距離順には端末の位置情報をONにしてください")
+                    NearbySearchUiState.LocationUnavailable -> FeedbackText("現在地を取得できませんでした。再度、距離順を選び直してください")
+                    NearbySearchUiState.NoSavedLocations -> Unit
+                    is NearbySearchUiState.Results -> {
+                        Text(
+                            if (nearbySearch.result.lowAccuracy) {
+                                "現在地の精度が低いため、直線距離は大まかな目安です"
+                            } else {
+                                "現在地からの概算直線距離で並べています"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
             LazyColumn(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 contentPadding = PaddingValues(bottom = 104.dp),
@@ -489,17 +749,147 @@ private fun LocationsHomeScreen(
                     items(filtered, key = SavedLocation::id) { location ->
                         LocationListRow(
                             location = location,
+                            distanceMeters = if (sortMode == LocationSortMode.DISTANCE) distancesByLocationId[location.id] else null,
                             selected = location.id in selectedIds,
+                            detailsExpanded = location.id in expandedLocationIds,
                             onSelectedChange = { selected ->
                                 selectedIds = if (selected) selectedIds + location.id else selectedIds - location.id
                             },
+                            onToggleDetails = {
+                                expandedLocationIds = toggleLocationDetailsExpansion(expandedLocationIds, location.id)
+                            },
                             onEnabledChange = { enabled -> onSetLocationsEnabled(setOf(location.id), enabled) },
+                            onClearSnooze = { onClearSnooze(location.id) },
                             onEdit = { onEdit(location) },
                             onDelete = { pendingDelete = location },
                         )
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun NearbySavedLocationsSheet(
+    searchState: NearbySearchUiState,
+    selectedFilter: NearbyDistanceFilter,
+    onFilterChange: (NearbyDistanceFilter) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("近くの登録地点", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("現在地からの概算直線距離です。経路距離や移動時間ではありません。")
+            when (searchState) {
+                NearbySearchUiState.Hidden -> Unit
+                NearbySearchUiState.Loading -> Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(28.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("現在地を取得中です")
+                }
+                NearbySearchUiState.PermissionRequired -> NearbySearchMessage(
+                    "正確な位置情報の権限が必要です。設定画面から許可してください。",
+                )
+                NearbySearchUiState.LocationServicesDisabled -> NearbySearchMessage(
+                    "端末の位置情報サービスがOFFです。ONにしてからもう一度お試しください。",
+                )
+                NearbySearchUiState.LocationUnavailable -> NearbySearchMessage(
+                    "有効な現在地を取得できませんでした。屋外などで再度お試しください。",
+                )
+                NearbySearchUiState.NoSavedLocations -> NearbySearchMessage("登録地点がありません。")
+                is NearbySearchUiState.Results -> {
+                    if (searchState.result.lowAccuracy) {
+                        Text(
+                            "位置精度が低いため、距離は大まかな目安です。",
+                            color = MaterialTheme.colorScheme.tertiary,
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        listOf(
+                            NearbyDistanceFilter.WITHIN_1_KM to "1km以内",
+                            NearbyDistanceFilter.WITHIN_5_KM to "5km以内",
+                            NearbyDistanceFilter.ALL to "すべて",
+                        ).forEach { (filter, label) ->
+                            FilterChip(
+                                selected = selectedFilter == filter,
+                                onClick = { onFilterChange(filter) },
+                                label = { Text(label) },
+                            )
+                        }
+                    }
+                    val selection = selectNearbyCandidates(searchState.result.candidates, selectedFilter)
+                    if (selection.showingFarFallback) {
+                        Text("5km以内に候補がないため、5kmより遠い最寄り地点を表示します。")
+                    } else if (selection.candidates.isEmpty()) {
+                        NearbySearchMessage("指定した距離内に登録地点がありません。")
+                    }
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 520.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        items(selection.candidates, key = { it.location.id }) { candidate ->
+                            NearbySavedLocationRow(candidate)
+                        }
+                    }
+                }
+            }
+            TextButton(modifier = Modifier.align(Alignment.End), onClick = onDismiss) { Text("閉じる") }
+        }
+    }
+}
+
+@Composable
+private fun NearbySearchMessage(message: String) {
+    Text(message, modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp))
+}
+
+@Composable
+private fun NearbySavedLocationRow(candidate: NearbySavedLocationCandidate) {
+    val location = candidate.location
+    val status = when {
+        !location.enabled -> "通知オフ"
+        location.registrationStatus == RegistrationStatus.ERROR -> "監視登録エラー"
+        location.registrationStatus == RegistrationStatus.REGISTERED -> "通知有効"
+        else -> "監視準備中"
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(
+                    location.name,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(formatApproxStraightLineDistance(candidate.distanceMeters), fontWeight = FontWeight.Bold)
+            }
+            if (location.message.isNotBlank()) {
+                Text(location.message, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            if (location.tags.isNotEmpty()) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    location.tags.forEach { tag -> Text("#${tag.name}", style = MaterialTheme.typography.labelMedium) }
+                }
+            }
+            Text("$status ・ 通知半径 ${location.radiusMeters}m ・ 直線距離", style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -540,9 +930,13 @@ private fun MonitoringSummary(uiState: LocationsUiState, onOpenSettings: () -> U
 @Composable
 private fun LocationListRow(
     location: SavedLocation,
+    distanceMeters: Float?,
     selected: Boolean,
+    detailsExpanded: Boolean,
     onSelectedChange: (Boolean) -> Unit,
+    onToggleDetails: () -> Unit,
     onEnabledChange: (Boolean) -> Unit,
+    onClearSnooze: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -558,26 +952,78 @@ private fun LocationListRow(
                 modifier = Modifier.padding(end = 4.dp).semantics { contentDescription = "${location.name}を選択" },
             )
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(location.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                if (location.message.isNotBlank()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = 48.dp)
+                        .clickable(
+                            onClickLabel = if (detailsExpanded) "詳細を非表示" else "詳細を表示",
+                            onClick = onToggleDetails,
+                        )
+                        .semantics(mergeDescendants = true) {
+                            contentDescription = if (detailsExpanded) {
+                                "${location.name}の詳細を非表示"
+                            } else {
+                                "${location.name}の詳細を表示"
+                            }
+                            stateDescription = if (detailsExpanded) "展開中" else "折りたたみ中"
+                        }
+                        .padding(vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            location.name,
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Icon(
+                            imageVector = if (detailsExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = null,
+                        )
+                    }
+                    if (location.message.isNotBlank()) {
+                        Text(
+                            location.message,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (detailsExpanded) {
+                    LocationNotificationSummary(location = location)
+                }
+                if (location.nearbyState == NearbyState.SNOOZED &&
+                    (location.snoozedUntil ?: 0L) > System.currentTimeMillis()
+                ) {
                     Text(
-                        location.message,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        "12時間休止中",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
                     )
                 }
-                LocationNotificationSummary(location = location, onEdit = onEdit)
                 if (location.tags.isNotEmpty()) {
                     FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
                         location.tags.forEach { tag ->
-                            AssistChip(onClick = onEdit, label = { Text("#${tag.name}") })
+                            CompactLocationTag(name = tag.name)
                         }
                     }
+                }
+                distanceMeters?.let {
+                    Text(
+                        "直線 ${formatApproxStraightLineDistance(it)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 }
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -597,6 +1043,12 @@ private fun LocationListRow(
             Box {
                 IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreVert, contentDescription = "地点メニュー") }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    if (location.nearbyState == NearbyState.SNOOZED) {
+                        DropdownMenuItem(
+                            text = { Text("12時間休止を解除") },
+                            onClick = { menuOpen = false; onClearSnooze() },
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text("編集") },
                         leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
@@ -615,20 +1067,68 @@ private fun LocationListRow(
 }
 
 @Composable
-private fun LocationNotificationSummary(location: SavedLocation, onEdit: () -> Unit) {
+private fun CompactLocationTag(name: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        shape = RoundedCornerShape(50),
+    ) {
+        Text(
+            text = "#$name",
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun LocationNotificationSummary(location: SavedLocation) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onEdit),
+        modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         shape = RoundedCornerShape(10.dp),
     ) {
-        Text(
-            text = "半径: ${location.radiusMeters}m　滞在: ${(location.loiteringDelayMs ?: 60_000) / 1_000}秒　再通知: ${CooldownHours.format(location.cooldownMinutes)}時間",
+        Column(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = "通知距離: ${location.radiusMeters}m　再通知: 十分に退出後",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            location.lastVerificationReason?.let { reason ->
+                Text(
+                    text = "直近判定: $reason",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            location.lastVerificationAt?.let {
+                Text("最終検証状態更新: ${formatEventTime(it)}", style = MaterialTheme.typography.labelSmall)
+            }
+            location.lastValidLocationAt?.let {
+                Text("最終有効測位: ${formatEventTime(it)}", style = MaterialTheme.typography.labelSmall)
+            }
+            location.lastEventAt?.let {
+                Text("最終ジオフェンスイベント: ${formatEventTime(it)}", style = MaterialTheme.typography.labelSmall)
+            }
+            location.lastSuppressionReason?.let {
+                Text("直近抑制・破棄: $it", style = MaterialTheme.typography.labelSmall, maxLines = 2)
+            }
+            if (location.lastAccuracyMeters != null || location.lastSpeedMetersPerSecond != null) {
+                val accuracy = location.lastAccuracyMeters?.let { "accuracy ${it.toInt()}m" } ?: "accuracy不明"
+                val speed = location.lastSpeedMetersPerSecond?.let { "速度 ${"%.1f".format(it)}m/s" } ?: "速度不明"
+                Text("$accuracy / $speed", style = MaterialTheme.typography.labelSmall)
+            }
+            location.snoozedUntil?.takeIf { it > System.currentTimeMillis() }?.let {
+                Text("休止期限: ${formatEventTime(it)}", style = MaterialTheme.typography.labelSmall)
+            }
+        }
     }
 }
 
@@ -638,28 +1138,85 @@ private fun LocationEditScreen(
     onBack: () -> Unit,
     onFormChange: (LocationFormState) -> Unit,
     onApplyPreset: (String) -> Unit,
+    onSelectSharedPlaceCandidate: (Int) -> Unit,
+    onConfirmSharedPlaceCandidateAndSave: () -> Unit,
+    onOpenSharedPlaceMap: () -> Unit,
+    onOpenSharedPlaceQueryMap: () -> Unit,
+    onSearchAddressCandidates: () -> Unit,
+    onSelectAddressCandidate: (Int) -> Unit,
     onSave: () -> Unit,
+    scrollToSharedPlaceOnError: Boolean,
     continuousProgress: Pair<Int, Int>?,
     modifier: Modifier = Modifier,
 ) {
-    var detailsExpanded by rememberSaveable { mutableStateOf(false) }
+    val form = uiState.form
+    val presentation = locationRegistrationPresentation(uiState)
+    val blockReason = locationSaveBlockReason(
+        form = form,
+        place = uiState.sharedPlace,
+        candidateConfirmed = uiState.sharedPlaceCandidateConfirmed,
+        coordinatesManuallyEdited = uiState.sharedPlaceCoordinatesManuallyEdited,
+    )
+    val disclosureKey = uiState.sharedRegistrationSession?.sessionId
+        ?: uiState.editingLocation?.id
+        ?: "new-location"
+    var detailsExpanded by rememberSaveable(disclosureKey) { mutableStateOf(form.name.isBlank()) }
+    var notificationExpanded by rememberSaveable(disclosureKey) { mutableStateOf(false) }
+    var coordinatesExpanded by rememberSaveable(disclosureKey) { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    val firstItemIndex = if (continuousProgress == null) 0 else 1
+    val validationSections = locationFormSectionsForValidation(
+        validationMessage = uiState.validationMessage,
+        blockReason = if (uiState.validationMessage == null) null else blockReason,
+    )
+    LaunchedEffect(
+        scrollToSharedPlaceOnError,
+        uiState.validationMessage,
+        uiState.sharedPlace?.failureReason,
+        disclosureKey,
+    ) {
+        if (uiState.validationMessage != null) {
+            if (LocationFormSection.DETAILS in validationSections) detailsExpanded = true
+            if (LocationFormSection.NOTIFICATION in validationSections) notificationExpanded = true
+            if (LocationFormSection.COORDINATES in validationSections) coordinatesExpanded = true
+            val targetIndex = when {
+                LocationFormSection.DETAILS in validationSections -> firstItemIndex + 1
+                LocationFormSection.NOTIFICATION in validationSections -> firstItemIndex + 2
+                LocationFormSection.COORDINATES in validationSections -> firstItemIndex + 3
+                else -> firstItemIndex
+            }
+            listState.animateScrollToItem(targetIndex)
+        } else if (scrollToSharedPlaceOnError && uiState.sharedPlace?.failureReason != null) {
+            listState.animateScrollToItem(firstItemIndex)
+        }
+    }
     Scaffold(
         modifier = modifier,
         topBar = {
             TopAppBar(
                 title = { Text(if (uiState.editingLocation == null) "地点を追加" else "地点を編集") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る") } },
+                actions = {
+                    Button(
+                        modifier = Modifier
+                            .defaultMinSize(minWidth = 0.dp, minHeight = 48.dp)
+                            .heightIn(min = 48.dp)
+                            .semantics { stateDescription = presentation.topSaveStateDescription },
+                        enabled = presentation.topSaveEnabled,
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        ),
+                        onClick = onSave,
+                    ) {
+                        Text(if (uiState.isSaving) "保存中" else "保存")
+                    }
+                },
             )
         },
-        bottomBar = {
-            Button(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                enabled = !uiState.isSaving,
-                onClick = onSave,
-            ) { Text(if (uiState.isSaving) "保存中" else "保存") }
-        },
     ) { padding ->
-        val form = uiState.form
         val tagQuery = form.tagInput.trim()
         val tagSuggestions = remember(uiState.tags, form.tags, tagQuery) {
             val normalizedQuery = TagRules.normalize(tagQuery)
@@ -681,7 +1238,8 @@ private fun LocationEditScreen(
             onFormChange(form.copy(tags = form.tags.filterNot { TagRules.normalize(it) == TagRules.normalize(name) }))
         }
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
+            modifier = Modifier.fillMaxSize().padding(padding).imePadding(),
+            state = listState,
             contentPadding = PaddingValues(20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -689,19 +1247,43 @@ private fun LocationEditScreen(
                 item { Text("連続編集 $current/$total 件目", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold) }
             }
             item {
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(), value = form.name,
-                    onValueChange = { onFormChange(form.copy(name = it)) }, label = { Text("名前") }, singleLine = true,
+                LocationPositionSection(
+                    uiState = uiState,
+                    presentation = presentation,
+                    validationMessage = uiState.validationMessage.takeIf { validationSections.isEmpty() },
+                    onFormChange = onFormChange,
+                    onSelectCandidate = onSelectSharedPlaceCandidate,
+                    onConfirmAndSave = onConfirmSharedPlaceCandidateAndSave,
+                    onOpenMap = onOpenSharedPlaceMap,
+                    onOpenQueryMap = onOpenSharedPlaceQueryMap,
+                    onSearchAddressCandidates = onSearchAddressCandidates,
+                    onSelectAddressCandidate = onSelectAddressCandidate,
                 )
             }
             item {
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(), value = form.message,
-                    onValueChange = { onFormChange(form.copy(message = it)) }, label = { Text("メモ（任意）") }, minLines = 2,
-                )
-            }
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                RegistrationDisclosure(
+                    title = "名前・メモを編集",
+                    icon = Icons.Default.Edit,
+                    expanded = detailsExpanded,
+                    enabled = !uiState.isSaving,
+                    onToggle = { detailsExpanded = !detailsExpanded },
+                ) {
+                    OutlinedTextField(
+                        modifier = Modifier.fillMaxWidth(),
+                        value = form.name,
+                        onValueChange = { onFormChange(form.copy(name = it)) },
+                        label = { Text("名前") },
+                        singleLine = true,
+                        enabled = !uiState.isSaving,
+                    )
+                    OutlinedTextField(
+                        modifier = Modifier.fillMaxWidth(),
+                        value = form.message,
+                        onValueChange = { onFormChange(form.copy(message = it)) },
+                        label = { Text("メモ（任意）") },
+                        minLines = 2,
+                        enabled = !uiState.isSaving,
+                    )
                     Text("タグ", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                     if (form.tags.isNotEmpty()) {
                         FlowRow(
@@ -709,87 +1291,513 @@ private fun LocationEditScreen(
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             form.tags.forEach { tag ->
-                                AssistChip(onClick = { removeTag(tag) }, label = { Text("#$tag ×") })
+                                AssistChip(
+                                    onClick = { removeTag(tag) },
+                                    label = { Text("#$tag ×") },
+                                    enabled = !uiState.isSaving,
+                                )
                             }
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(
-                            modifier = Modifier.weight(1f),
-                            value = form.tagInput,
-                            onValueChange = { onFormChange(form.copy(tagInput = it.take(TagRules.MAX_TAG_NAME_LENGTH + 1))) },
-                            label = { Text("タグを追加（例: #会社）") },
-                            singleLine = true,
-                            supportingText = { Text("${form.tags.size}/${TagRules.MAX_TAGS_PER_LOCATION}個・全体${TagRules.MAX_TAGS_TOTAL}個まで") },
-                        )
-                        OutlinedButton(
-                            enabled = form.tagInput.isNotBlank() && form.tags.size < TagRules.MAX_TAGS_PER_LOCATION,
-                            onClick = { addTag(form.tagInput) },
-                        ) { Text("追加") }
-                    }
+                    OutlinedTextField(
+                        modifier = Modifier.fillMaxWidth(),
+                        value = form.tagInput,
+                        onValueChange = { onFormChange(form.copy(tagInput = it.take(TagRules.MAX_TAG_NAME_LENGTH + 1))) },
+                        label = { Text("タグを追加（例: #会社）") },
+                        singleLine = true,
+                        supportingText = { Text("${form.tags.size}/${TagRules.MAX_TAGS_PER_LOCATION}個・全体${TagRules.MAX_TAGS_TOTAL}個まで") },
+                        enabled = !uiState.isSaving,
+                    )
+                    OutlinedButton(
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        enabled = !uiState.isSaving &&
+                            form.tagInput.isNotBlank() &&
+                            form.tags.size < TagRules.MAX_TAGS_PER_LOCATION,
+                        onClick = { addTag(form.tagInput) },
+                    ) { Text("追加") }
                     if (tagSuggestions.isNotEmpty()) {
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             tagSuggestions.forEach { tag ->
-                                AssistChip(onClick = { addTag(tag.name) }, label = { Text("#${tag.name} ${tag.usageCount}件") })
+                                AssistChip(
+                                    onClick = { addTag(tag.name) },
+                                    label = { Text("#${tag.name} ${tag.usageCount}件") },
+                                    enabled = !uiState.isSaving,
+                                )
+                            }
+                        }
+                    }
+                    if (LocationFormSection.DETAILS in validationSections) {
+                        InlineValidationMessage(uiState.validationMessage.orEmpty())
+                    }
+                }
+            }
+            item {
+                RegistrationDisclosure(
+                    title = "通知条件を編集",
+                    icon = Icons.Default.Settings,
+                    expanded = notificationExpanded,
+                    enabled = !uiState.isSaving,
+                    onToggle = { notificationExpanded = !notificationExpanded },
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("この地点を有効にする")
+                            Text("無効にすると監視対象から外れます", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(
+                            checked = form.enabled,
+                            onCheckedChange = { onFormChange(form.copy(enabled = it)) },
+                            enabled = !uiState.isSaving,
+                        )
+                    }
+                    Text("移動手段（テンプレ）", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        uiState.presets.forEach { preset ->
+                            FilterChip(
+                                selected = uiState.selectedPresetId == preset.id,
+                                onClick = { onApplyPreset(preset.id) },
+                                label = { Text(preset.name) },
+                                enabled = !uiState.isSaving,
+                            )
+                        }
+                    }
+                    Text("再通知は0.5時間単位で指定できます", style = MaterialTheme.typography.bodySmall)
+                    NotificationSettingsFields(
+                        form = form,
+                        onFormChange = onFormChange,
+                        enabled = !uiState.isSaving,
+                    )
+                    if (LocationFormSection.NOTIFICATION in validationSections) {
+                        InlineValidationMessage(uiState.validationMessage.orEmpty())
+                    }
+                }
+            }
+            item {
+                RegistrationDisclosure(
+                    title = "緯度・経度を確認",
+                    icon = Icons.Default.LocationOn,
+                    expanded = coordinatesExpanded,
+                    enabled = !uiState.isSaving,
+                    onToggle = { coordinatesExpanded = !coordinatesExpanded },
+                ) {
+                    val fontScale = LocalDensity.current.fontScale
+                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                        val latitudeIsError = form.latitude.isNotBlank() &&
+                            (form.latitude.toDoubleOrNull()?.takeIf { it.isFinite() && it in -90.0..90.0 } == null)
+                        val longitudeIsError = form.longitude.isNotBlank() &&
+                            (form.longitude.toDoubleOrNull()?.takeIf { it.isFinite() && it in -180.0..180.0 } == null)
+                        if (shouldStackCoordinateFields(maxWidth.value, fontScale)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                NumberField(
+                                    form.latitude,
+                                    { onFormChange(form.copy(latitude = it)) },
+                                    "緯度",
+                                    Modifier.fillMaxWidth(),
+                                    isError = latitudeIsError,
+                                    supportingMessage = "入力範囲: -90〜90",
+                                    enabled = !uiState.isSaving,
+                                )
+                                NumberField(
+                                    form.longitude,
+                                    { onFormChange(form.copy(longitude = it)) },
+                                    "経度",
+                                    Modifier.fillMaxWidth(),
+                                    isError = longitudeIsError,
+                                    supportingMessage = "入力範囲: -180〜180",
+                                    enabled = !uiState.isSaving,
+                                )
+                            }
+                        } else {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                NumberField(
+                                    form.latitude,
+                                    { onFormChange(form.copy(latitude = it)) },
+                                    "緯度",
+                                    Modifier.weight(1f),
+                                    isError = latitudeIsError,
+                                    supportingMessage = "入力範囲: -90〜90",
+                                    enabled = !uiState.isSaving,
+                                )
+                                NumberField(
+                                    form.longitude,
+                                    { onFormChange(form.copy(longitude = it)) },
+                                    "経度",
+                                    Modifier.weight(1f),
+                                    isError = longitudeIsError,
+                                    supportingMessage = "入力範囲: -180〜180",
+                                    enabled = !uiState.isSaving,
+                                )
+                            }
+                        }
+                    }
+                    if (LocationFormSection.COORDINATES in validationSections) {
+                        InlineValidationMessage(uiState.validationMessage.orEmpty())
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotificationSettingsFields(
+    form: LocationFormState,
+    onFormChange: (LocationFormState) -> Unit,
+    enabled: Boolean = true,
+) {
+    val fontScale = LocalDensity.current.fontScale
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        if (shouldUseSingleRowNotificationSettings(maxWidth.value, fontScale)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                NumberField(form.radiusMeters, { onFormChange(form.copy(radiusMeters = it)) }, "半径m", Modifier.weight(1f), enabled = enabled)
+                NumberField(form.loiteringDelaySeconds, { onFormChange(form.copy(loiteringDelaySeconds = it)) }, "滞在秒", Modifier.weight(1f), enabled = enabled)
+                NumberField(form.cooldownHours, { onFormChange(form.copy(cooldownHours = it)) }, "再通知h", Modifier.weight(1f), enabled = enabled)
+            }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    NumberField(form.radiusMeters, { onFormChange(form.copy(radiusMeters = it)) }, "半径m", Modifier.weight(1f), enabled = enabled)
+                    NumberField(form.loiteringDelaySeconds, { onFormChange(form.copy(loiteringDelaySeconds = it)) }, "滞在秒", Modifier.weight(1f), enabled = enabled)
+                }
+                NumberField(
+                    form.cooldownHours,
+                    { onFormChange(form.copy(cooldownHours = it)) },
+                    "再通知h",
+                    Modifier.fillMaxWidth(),
+                    enabled = enabled,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LocationPositionSection(
+    uiState: LocationsUiState,
+    presentation: LocationRegistrationPresentation,
+    validationMessage: String?,
+    onFormChange: (LocationFormState) -> Unit,
+    onSelectCandidate: (Int) -> Unit,
+    onConfirmAndSave: () -> Unit,
+    onOpenMap: () -> Unit,
+    onOpenQueryMap: () -> Unit,
+    onSearchAddressCandidates: () -> Unit,
+    onSelectAddressCandidate: (Int) -> Unit,
+) {
+    val place = uiState.sharedPlace
+    val candidateChoices = place?.candidates
+        .orEmpty()
+        .mapIndexed { index, candidate -> index to candidate }
+        .distinctBy { (_, candidate) ->
+            "${"%.5f".format(Locale.US, candidate.latitude)}|${"%.5f".format(Locale.US, candidate.longitude)}"
+        }
+    val hasAlternatives = candidateChoices.size > 1 || uiState.addressCandidates.size > 1
+    var showAlternatives by rememberSaveable(place?.sourceUrl, place?.selectedCandidateIndex) {
+        mutableStateOf(false)
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = RoundedCornerShape(18.dp),
+        tonalElevation = 2.dp,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            when (presentation.mode) {
+                LocationRegistrationMode.RESOLVING -> {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("位置を確認しています", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                            Text(presentation.guidance, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+
+                LocationRegistrationMode.NEEDS_CONFIRMATION -> {
+                    Text("この場所で合っていますか？", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    CandidateSummary(
+                        title = presentation.candidateTitle,
+                        address = presentation.candidateAddress,
+                    )
+                    OutlinedButton(
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        enabled = !uiState.isSaving,
+                        onClick = onOpenMap,
+                    ) {
+                        Icon(Icons.Default.LocationOn, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(presentation.mapActionLabel)
+                    }
+                    Text(
+                        presentation.guidance,
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Button(
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                        enabled = !uiState.isSaving,
+                        onClick = onConfirmAndSave,
+                    ) {
+                        Icon(Icons.Default.LocationOn, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (uiState.isSaving) "保存中" else "この位置で登録する")
+                    }
+                    Text(
+                        "この位置を確定すると保存されます",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    if (hasAlternatives) {
+                        TextButton(
+                            modifier = Modifier.align(Alignment.CenterHorizontally).heightIn(min = 48.dp),
+                            enabled = !uiState.isSaving,
+                            onClick = { showAlternatives = !showAlternatives },
+                        ) {
+                            Text(if (showAlternatives) "候補を閉じる" else "候補を選び直す")
+                        }
+                    }
+                    if (showAlternatives) {
+                        candidateChoices.forEachIndexed { displayIndex, (sourceIndex, _) ->
+                            if (sourceIndex != place?.selectedCandidateIndex) {
+                                OutlinedButton(
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                                    enabled = !uiState.isSaving,
+                                    onClick = {
+                                        showAlternatives = false
+                                        onSelectCandidate(sourceIndex)
+                                    },
+                                ) { Text("候補${displayIndex + 1}を使用") }
+                            }
+                        }
+                        uiState.addressCandidates.forEachIndexed { index, candidate ->
+                            if (candidate.label != uiState.form.address) {
+                                OutlinedButton(
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                                    enabled = !uiState.isSaving,
+                                    onClick = {
+                                        showAlternatives = false
+                                        onSelectAddressCandidate(index)
+                                    },
+                                ) {
+                                    Text(candidate.label, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                }
                             }
                         }
                     }
                 }
-            }
-            item {
-                Text("移動手段（テンプレ）", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    uiState.presets.forEach { preset ->
-                        FilterChip(
-                            selected = uiState.selectedPresetId == preset.id,
-                            onClick = { onApplyPreset(preset.id) },
-                            label = { Text(preset.name) },
-                        )
+
+                LocationRegistrationMode.NEEDS_LOCATION -> {
+                    Text("場所を設定してください", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(presentation.guidance, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    place?.warnings.orEmpty().forEach { warning ->
+                        Text(warning, style = MaterialTheme.typography.bodySmall)
                     }
-                }
-            }
-            item { Text("通知の設定", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary) }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    NumberField(form.radiusMeters, { onFormChange(form.copy(radiusMeters = it)) }, "半径m", Modifier.weight(1f))
-                    NumberField(form.loiteringDelaySeconds, { onFormChange(form.copy(loiteringDelaySeconds = it)) }, "滞在秒", Modifier.weight(1f))
-                }
-            }
-            item { NumberField(form.cooldownHours, { onFormChange(form.copy(cooldownHours = it)) }, "再通知時間（0.5時間単位）", Modifier.fillMaxWidth()) }
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Column {
-                        Text("この地点を有効にする")
-                        Text("無効にすると監視対象から外れます", style = MaterialTheme.typography.bodySmall)
+                    place?.failureReason?.let { reason ->
+                        InlineValidationMessage(reason)
                     }
-                    Switch(checked = form.enabled, onCheckedChange = { onFormChange(form.copy(enabled = it)) })
-                }
-            }
-            item {
-                OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { detailsExpanded = !detailsExpanded }) {
-                    Text(if (detailsExpanded) "位置の詳細を閉じる" else "位置の詳細（緯度・経度）")
-                }
-            }
-            if (detailsExpanded) {
-                item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        NumberField(form.latitude, { onFormChange(form.copy(latitude = it)) }, "緯度", Modifier.weight(1f))
-                        NumberField(form.longitude, { onFormChange(form.copy(longitude = it)) }, "経度", Modifier.weight(1f))
+                    OutlinedTextField(
+                        modifier = Modifier.fillMaxWidth(),
+                        value = uiState.form.address,
+                        onValueChange = { onFormChange(uiState.form.copy(address = it.take(256))) },
+                        label = { Text("住所・施設名") },
+                        singleLine = true,
+                        enabled = !uiState.isSaving,
+                    )
+                    Button(
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        enabled = !uiState.isSaving &&
+                            !uiState.isAddressSearching &&
+                            uiState.form.address.trim().length >= 3,
+                        onClick = onSearchAddressCandidates,
+                    ) {
+                        if (uiState.isAddressSearching) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        Text(if (uiState.isAddressSearching) "検索中" else "住所・施設名で検索")
                     }
+                    OutlinedButton(
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        enabled = !uiState.isSaving &&
+                            (uiState.form.address.isNotBlank() || uiState.form.name.isNotBlank()),
+                        onClick = onOpenQueryMap,
+                    ) {
+                        Icon(Icons.Default.LocationOn, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Googleマップで確認")
+                    }
+                    uiState.addressSearchMessage?.let { message ->
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            shape = RoundedCornerShape(10.dp),
+                        ) {
+                            Text(message, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                    uiState.addressCandidates.forEachIndexed { index, candidate ->
+                        OutlinedButton(
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                            enabled = !uiState.isSaving,
+                            onClick = { onSelectAddressCandidate(index) },
+                        ) {
+                            Text(candidate.label, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    Text(
+                        "Googleマップから座標を共有し直しても、名前やメモなどの入力内容は保持されます",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                LocationRegistrationMode.READY,
+                LocationRegistrationMode.SAVING,
+                -> {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Text("位置を設定しました", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    }
+                    CandidateSummary(
+                        title = presentation.candidateTitle,
+                        address = presentation.candidateAddress,
+                    )
+                    OutlinedButton(
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        enabled = !uiState.isSaving,
+                        onClick = onOpenMap,
+                    ) {
+                        Icon(Icons.Default.LocationOn, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(presentation.mapActionLabel)
+                    }
+                    Text(
+                        if (uiState.isSaving) "保存しています" else "右上の「保存」で登録できます",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
             }
-            uiState.validationMessage?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
+            validationMessage?.takeIf(String::isNotBlank)?.let { message ->
+                InlineValidationMessage(message)
+            }
         }
+    }
+}
+
+@Composable
+private fun CandidateSummary(
+    title: String,
+    address: String?,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        shape = RoundedCornerShape(14.dp),
+        tonalElevation = 1.dp,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Default.LocationOn,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(34.dp),
+            )
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                address?.let {
+                    Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RegistrationDisclosure(
+    title: String,
+    icon: ImageVector,
+    expanded: Boolean,
+    enabled: Boolean,
+    onToggle: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = RoundedCornerShape(14.dp),
+        tonalElevation = 1.dp,
+    ) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 64.dp)
+                    .semantics { stateDescription = if (expanded) "展開中" else "折りたたみ中" }
+                    .clickable(
+                        enabled = enabled,
+                        onClickLabel = if (expanded) "${title}を閉じる" else "${title}を開く",
+                        onClick = onToggle,
+                    )
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Text(title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Icon(
+                    if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = null,
+                )
+            }
+            if (expanded) {
+                HorizontalDivider()
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    content = content,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun InlineValidationMessage(message: String) {
+    if (message.isBlank()) return
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+        Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -989,6 +1997,7 @@ private fun SettingsScreen(
     onRefreshPermissions: () -> Unit,
     onRequestForegroundLocation: () -> Unit,
     onRequestNotification: () -> Unit,
+    onRequestActivityRecognition: () -> Unit,
     onOpenAppSettings: () -> Unit,
     onRegisterGeofences: () -> Unit,
     onRepair: () -> Unit,
@@ -1013,9 +2022,14 @@ private fun SettingsScreen(
                     }
                     StatusText("バッテリー", state)
                 }
+                uiState.activitySnapshot?.let { snapshot ->
+                    StatusText("現在の活動状態", snapshot.state.label())
+                    snapshot.updatedAt?.let { Text("最終更新: ${formatEventTime(it)}", style = MaterialTheme.typography.bodySmall) }
+                }
                 Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = onRequestForegroundLocation) { Text("位置許可") }
                     TextButton(onClick = onRequestNotification) { Text("通知許可") }
+                    TextButton(onClick = onRequestActivityRecognition) { Text("活動認識許可") }
                     TextButton(onClick = onOpenAppSettings) { Text("Android設定") }
                 }
             }
@@ -1189,6 +2203,7 @@ private fun PermissionRows(snapshot: PermissionSnapshot) {
         StatusText("バックグラウンド位置", snapshot.backgroundLocation.label())
         StatusText("位置情報サービス", snapshot.locationServices.label())
         StatusText("Google Play services", snapshot.googlePlayServices.label())
+        StatusText("活動認識", snapshot.activityRecognition.label())
     }
 }
 
@@ -1217,6 +2232,9 @@ private fun NumberField(
     onValueChange: (String) -> Unit,
     label: String,
     modifier: Modifier = Modifier,
+    isError: Boolean = false,
+    supportingMessage: String? = null,
+    enabled: Boolean = true,
 ) {
     OutlinedTextField(
         modifier = modifier,
@@ -1224,6 +2242,11 @@ private fun NumberField(
         onValueChange = onValueChange,
         label = { Text(label) },
         singleLine = true,
+        enabled = enabled,
+        isError = isError,
+        supportingText = supportingMessage?.let { message ->
+            { Text(message) }
+        },
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
     )
 }
@@ -1232,6 +2255,21 @@ private fun NotificationPermissionStatus.label() = when (this) {
     NotificationPermissionStatus.Granted -> "許可"
     NotificationPermissionStatus.Denied -> "未許可"
     NotificationPermissionStatus.NotRequired -> "不要"
+}
+
+private fun ActivityRecognitionStatus.label() = when (this) {
+    ActivityRecognitionStatus.Granted -> "許可"
+    ActivityRecognitionStatus.Denied -> "未許可（速度で代替）"
+    ActivityRecognitionStatus.NotRequired -> "不要"
+}
+
+private fun com.chikabell.app.geofence.DetectedMotion.label() = when (this) {
+    com.chikabell.app.geofence.DetectedMotion.STILL -> "静止"
+    com.chikabell.app.geofence.DetectedMotion.WALKING -> "徒歩"
+    com.chikabell.app.geofence.DetectedMotion.RUNNING -> "走行"
+    com.chikabell.app.geofence.DetectedMotion.ON_BICYCLE -> "自転車"
+    com.chikabell.app.geofence.DetectedMotion.IN_VEHICLE -> "車両"
+    com.chikabell.app.geofence.DetectedMotion.UNKNOWN -> "不明"
 }
 
 private fun ForegroundLocationStatus.label() = when (this) {

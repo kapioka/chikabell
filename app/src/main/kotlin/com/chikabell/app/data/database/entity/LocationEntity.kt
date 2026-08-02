@@ -33,4 +33,13 @@ data class LocationEntity(
     val sortOrder: Long,
     /** The most recent Geofencing API registration generation accepted for this location. */
     val registrationGenerationId: String? = null,
+    val nearbyState: String = "MONITORING",
+    val snoozedUntil: Long? = null,
+    val lastVerificationAt: Long? = null,
+    val lastValidLocationAt: Long? = null,
+    val lastVerificationReason: String? = null,
+    val lastSuppressionReason: String? = null,
+    val lastAccuracyMeters: Float? = null,
+    val lastSpeedMetersPerSecond: Float? = null,
+    val lastNotificationDistanceMeters: Float? = null,
 )

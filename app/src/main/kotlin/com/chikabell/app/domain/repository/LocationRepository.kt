@@ -3,6 +3,7 @@ package com.chikabell.app.domain.repository
 import com.chikabell.app.domain.model.LocationDraft
 import com.chikabell.app.domain.model.RegistrationStatus
 import com.chikabell.app.domain.model.SavedLocation
+import com.chikabell.app.domain.model.NearbyState
 import kotlinx.coroutines.flow.Flow
 import com.chikabell.app.importexport.LocationImportCandidate
 
@@ -28,4 +29,21 @@ interface LocationRepository {
     suspend fun markInactive(locationId: String)
     suspend fun markLastEvent(locationId: String, eventAt: Long)
     suspend fun markLastNotified(locationId: String, notifiedAt: Long)
+    suspend fun updateNearbyState(
+        locationId: String,
+        state: NearbyState,
+        snoozedUntil: Long? = null,
+        verifiedAt: Long? = null,
+        lastValidLocationAt: Long? = null,
+        verificationReason: String? = null,
+        suppressionReason: String? = null,
+        accuracyMeters: Float? = null,
+        speedMetersPerSecond: Float? = null,
+        notificationDistanceMeters: Float? = null,
+    )
+    suspend fun claimVerification(locationId: String, verifiedAt: Long, reason: String): Boolean
+    suspend fun snoozeLocations(locationIds: Set<String>, snoozedUntil: Long)
+    suspend fun clearSnooze(locationId: String)
+    suspend fun refreshExpiredSnoozes(referenceTime: Long = System.currentTimeMillis()): Int
+    suspend fun recoverStaleVerifications(referenceTime: Long = System.currentTimeMillis()): Int
 }

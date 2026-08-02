@@ -16,11 +16,16 @@ import com.chikabell.app.geofence.GeofencePendingIntentFactory
 import com.chikabell.app.geofence.GeofenceRegistrar
 import com.chikabell.app.geofence.CheckCurrentLocationUseCase
 import com.chikabell.app.geofence.CurrentLocationReader
+import com.chikabell.app.geofence.FindNearbySavedLocationsUseCase
 import com.chikabell.app.geofence.ProcessGeofenceEventUseCase
 import com.chikabell.app.geofence.ReconcileGeofencesUseCase
 import com.chikabell.app.geofence.RestoreGeofencesCoordinator
+import com.chikabell.app.geofence.ActivityStateStore
+import com.chikabell.app.geofence.ActivityRecognitionRegistrar
+import com.chikabell.app.geofence.GeofenceRadiusRefreshUseCase
 import com.chikabell.app.notification.NearbyNotificationPoster
 import com.chikabell.app.notification.NotificationChannels
+import com.chikabell.app.notification.SendTestNotificationUseCase
 import com.chikabell.app.permission.PermissionStateReader
 import com.chikabell.app.permission.BackgroundRestrictionReader
 
@@ -46,7 +51,15 @@ class AppContainer(context: Context) {
     )
     val permissionStateReader = PermissionStateReader(appContext)
     val backgroundRestrictionReader = BackgroundRestrictionReader(appContext)
+    val activityStateStore = ActivityStateStore(appContext)
+    val activityRecognitionRegistrar = ActivityRecognitionRegistrar(appContext)
     private val notificationPoster = NearbyNotificationPoster(appContext)
+    val sendTestNotificationUseCase = SendTestNotificationUseCase(notificationPoster)
+    private val geofenceRegistrar = GeofenceRegistrar(
+        context = appContext,
+        pendingIntentFactory = GeofencePendingIntentFactory(appContext),
+        activityStateSource = activityStateStore,
+    )
 
     init {
         NotificationChannels.ensureCreated(appContext)
@@ -55,21 +68,28 @@ class AppContainer(context: Context) {
     val reconcileGeofencesUseCase = ReconcileGeofencesUseCase(
         locationRepository = locationRepository,
         permissionStateReader = permissionStateReader,
-        geofenceRegistrar = GeofenceRegistrar(
-            context = appContext,
-            pendingIntentFactory = GeofencePendingIntentFactory(appContext),
-        ),
+        geofenceRegistrar = geofenceRegistrar,
         registrationDiagnosticsRepository = registrationDiagnosticsRepository,
+    )
+    val geofenceRadiusRefreshUseCase = GeofenceRadiusRefreshUseCase(
+        locationRepository = locationRepository,
+        permissionStateReader = permissionStateReader,
+        geofenceRegistrar = geofenceRegistrar,
     )
     val processGeofenceEventUseCase = ProcessGeofenceEventUseCase(
         locationRepository = locationRepository,
         historyRepository = historyRepository,
         notificationPoster = notificationPoster,
         currentLocationReader = CurrentLocationReader(appContext),
+        activityStateStore = activityStateStore,
+        verificationGeofenceGateway = geofenceRegistrar,
     )
     val checkCurrentLocationUseCase = CheckCurrentLocationUseCase(
         locationRepository = locationRepository,
         currentLocationReader = CurrentLocationReader(appContext),
+    )
+    val findNearbySavedLocationsUseCase = FindNearbySavedLocationsUseCase(
+        currentLocationSource = CurrentLocationReader(appContext),
     )
     val restoreGeofencesCoordinator = RestoreGeofencesCoordinator(
         locationRepository = locationRepository,

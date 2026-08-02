@@ -7,6 +7,7 @@ import com.chikabell.app.data.database.entity.LocationWithTags
 import com.chikabell.app.data.database.entity.TagEntity
 import com.chikabell.app.domain.model.LocationDraft
 import com.chikabell.app.domain.model.LocationTag
+import com.chikabell.app.domain.model.NearbyState
 import com.chikabell.app.domain.model.RegistrationStatus
 import com.chikabell.app.domain.model.SavedLocation
 import com.chikabell.app.domain.model.SourceType
@@ -15,6 +16,7 @@ import com.chikabell.app.domain.model.TransitionType
 import com.chikabell.app.domain.repository.LocationRepository
 import java.util.UUID
 import com.chikabell.app.importexport.LocationImportCandidate
+import com.chikabell.app.geofence.NearbyVerificationPolicy
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -28,10 +30,12 @@ class LocationRepositoryImpl(
     }
 
     override suspend fun getEnabledLocations(): List<SavedLocation> {
+        refreshTransientStates()
         return locationDao.getEnabledWithTagsOnce().map(LocationWithTags::toDomain)
     }
 
     override suspend fun getLocationById(id: String): SavedLocation? {
+        refreshTransientStates()
         return locationDao.getByIdWithTags(id)?.toDomain()
     }
 
@@ -186,6 +190,66 @@ class LocationRepositoryImpl(
         )
     }
 
+    override suspend fun updateNearbyState(
+        locationId: String,
+        state: NearbyState,
+        snoozedUntil: Long?,
+        verifiedAt: Long?,
+        lastValidLocationAt: Long?,
+        verificationReason: String?,
+        suppressionReason: String?,
+        accuracyMeters: Float?,
+        speedMetersPerSecond: Float?,
+        notificationDistanceMeters: Float?,
+    ) {
+        locationDao.updateNearbyState(
+            id = locationId,
+            state = state.name,
+            snoozedUntil = snoozedUntil,
+            verifiedAt = verifiedAt,
+            lastValidLocationAt = lastValidLocationAt,
+            verificationReason = verificationReason,
+            suppressionReason = suppressionReason,
+            accuracyMeters = accuracyMeters,
+            speedMetersPerSecond = speedMetersPerSecond,
+            notificationDistanceMeters = notificationDistanceMeters,
+            updatedAt = System.currentTimeMillis(),
+        )
+    }
+
+    override suspend fun claimVerification(locationId: String, verifiedAt: Long, reason: String): Boolean {
+        return locationDao.claimVerification(locationId, verifiedAt, reason) == 1
+    }
+
+    override suspend fun snoozeLocations(locationIds: Set<String>, snoozedUntil: Long) {
+        if (locationIds.isEmpty()) return
+        locationDao.snooze(locationIds.toList(), snoozedUntil, System.currentTimeMillis())
+    }
+
+    override suspend fun clearSnooze(locationId: String) {
+        locationDao.clearSnooze(locationId, System.currentTimeMillis())
+    }
+
+    override suspend fun refreshExpiredSnoozes(referenceTime: Long): Int {
+        return locationDao.clearExpiredSnoozes(referenceTime)
+    }
+
+    override suspend fun recoverStaleVerifications(referenceTime: Long): Int {
+        return locationDao.recoverStaleVerifications(
+            cutoff = referenceTime - NearbyVerificationPolicy.MAX_VERIFICATION_SESSION_MILLIS,
+            now = referenceTime,
+        )
+    }
+
+    private suspend fun refreshTransientStates() {
+        val now = System.currentTimeMillis()
+        locationDao.clearExpiredSnoozes(now)
+        locationDao.recoverStaleVerifications(
+            cutoff = now - NearbyVerificationPolicy.MAX_VERIFICATION_SESSION_MILLIS,
+            now = now,
+        )
+    }
+
     private suspend fun replaceLocationTags(locationId: String, rawTags: List<String>) {
         val names = TagRules.sanitizeNames(rawTags)
         if (rawTags.size > TagRules.MAX_TAGS_PER_LOCATION || names.size > TagRules.MAX_TAGS_PER_LOCATION) {
@@ -247,6 +311,15 @@ private fun LocationEntity.toDomain(tags: List<LocationTag>): SavedLocation {
         registrationErrorMessage = registrationErrorMessage,
         lastRegisteredAt = lastRegisteredAt,
         registrationGenerationId = registrationGenerationId,
+        nearbyState = runCatching { NearbyState.valueOf(nearbyState) }.getOrDefault(NearbyState.MONITORING),
+        snoozedUntil = snoozedUntil,
+        lastVerificationAt = lastVerificationAt,
+        lastValidLocationAt = lastValidLocationAt,
+        lastVerificationReason = lastVerificationReason,
+        lastSuppressionReason = lastSuppressionReason,
+        lastAccuracyMeters = lastAccuracyMeters,
+        lastSpeedMetersPerSecond = lastSpeedMetersPerSecond,
+        lastNotificationDistanceMeters = lastNotificationDistanceMeters,
         sortOrder = sortOrder,
         tags = tags,
     )
@@ -285,5 +358,14 @@ private fun SavedLocation.toEntity(): LocationEntity {
         lastRegisteredAt = lastRegisteredAt,
         sortOrder = sortOrder,
         registrationGenerationId = registrationGenerationId,
+        nearbyState = nearbyState.name,
+        snoozedUntil = snoozedUntil,
+        lastVerificationAt = lastVerificationAt,
+        lastValidLocationAt = lastValidLocationAt,
+        lastVerificationReason = lastVerificationReason,
+        lastSuppressionReason = lastSuppressionReason,
+        lastAccuracyMeters = lastAccuracyMeters,
+        lastSpeedMetersPerSecond = lastSpeedMetersPerSecond,
+        lastNotificationDistanceMeters = lastNotificationDistanceMeters,
     )
 }

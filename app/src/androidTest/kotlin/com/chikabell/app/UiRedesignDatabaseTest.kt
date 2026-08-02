@@ -62,15 +62,16 @@ class UiRedesignDatabaseTest {
     }
 
     @Test
-    fun historyIsTrimmedToLatestFiftyAndCanBeDeletedAll() = runBlocking {
+    fun historyPruningKeepsLatestBoundedRowsAndCanDeleteAll() = runBlocking {
         val dao = database.notificationHistoryDao()
-        repeat(51) { index ->
-            dao.insertAndTrim(history(index.toString(), "Place", "POSTED", index.toLong()))
+        repeat(1_001) { index ->
+            dao.insert(history(index.toString(), "Place", "POSTED", index.toLong()))
         }
+        dao.prune(referenceTimeMillis = 1_001L)
 
         val retained = dao.observeAll().first()
-        assertEquals(50, retained.size)
-        assertEquals("50", retained.first().id)
+        assertEquals(1_000, retained.size)
+        assertEquals("1000", retained.first().id)
         assertEquals("1", retained.last().id)
 
         dao.deleteAll()
@@ -87,6 +88,53 @@ class UiRedesignDatabaseTest {
         assertEquals("walk", preset.id)
         assertEquals("ゆっくり徒歩", preset.name)
         assertEquals(350, preset.radiusMeters)
+    }
+
+    @Test
+    fun nearbyStateAndSnoozeCanBePersistedAndCleared() = runBlocking {
+        val dao = database.locationDao()
+        dao.insert(location("nearby", true, 1))
+
+        dao.updateNearbyState(
+            id = "nearby",
+            state = "REARM_WAIT",
+            snoozedUntil = null,
+            verifiedAt = 2_000L,
+            lastValidLocationAt = 1_500L,
+            verificationReason = "confirmed",
+            suppressionReason = null,
+            accuracyMeters = 20F,
+            speedMetersPerSecond = 4F,
+            notificationDistanceMeters = 250F,
+            updatedAt = 2_000L,
+        )
+        assertEquals("REARM_WAIT", dao.getById("nearby")?.nearbyState)
+        assertEquals(1_500L, dao.getById("nearby")?.lastValidLocationAt)
+
+        dao.snooze(listOf("nearby"), 50_000L, 3_000L)
+        assertEquals("SNOOZED", dao.getById("nearby")?.nearbyState)
+        assertEquals(50_000L, dao.getById("nearby")?.snoozedUntil)
+
+        assertEquals(1, dao.clearExpiredSnoozes(50_000L))
+        assertEquals("MONITORING", dao.getById("nearby")?.nearbyState)
+
+        dao.snooze(listOf("nearby"), 60_000L, 3_500L)
+        dao.updateNearbyState("nearby", "MONITORING", null, 4_000L, null, "stale exit", null, null, null, null, 4_000L)
+        assertEquals("SNOOZED", dao.getById("nearby")?.nearbyState)
+        assertEquals(60_000L, dao.getById("nearby")?.snoozedUntil)
+
+        dao.clearSnooze("nearby", 4_000L)
+        assertEquals("MONITORING", dao.getById("nearby")?.nearbyState)
+        assertEquals(null, dao.getById("nearby")?.snoozedUntil)
+
+        assertEquals(1, dao.claimVerification("nearby", 9_000L, "claim"))
+        assertEquals(0, dao.claimVerification("nearby", 9_001L, "duplicate"))
+        dao.updateNearbyState("nearby", "MONITORING", null, 9_002L, null, "reset", null, null, null, null, 9_002L)
+
+        dao.updateNearbyState("nearby", "VERIFYING", null, 10_000L, null, "started", null, null, null, null, 10_000L)
+        assertEquals(1, dao.recoverStaleVerifications(10_000L, 20_000L))
+        assertEquals("MONITORING", dao.getById("nearby")?.nearbyState)
+        assertEquals(1_500L, dao.getById("nearby")?.lastValidLocationAt)
     }
 
     private fun location(id: String, enabled: Boolean, sortOrder: Long) = LocationEntity(

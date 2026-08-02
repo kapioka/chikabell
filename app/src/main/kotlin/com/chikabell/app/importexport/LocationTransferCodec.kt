@@ -21,6 +21,7 @@ object LocationTransferCodec {
     const val SCHEMA_VERSION = 2
     const val MAX_FILE_CHARS = 2_000_000
     const val MAX_ROWS = 1_000
+    private const val MAX_CSV_COLUMNS = 12
     private val json = Json { prettyPrint = true; explicitNulls = false }
     private val csvHeaders = listOf(
         "id", "name", "latitude", "longitude", "radiusMeters", "message",
@@ -29,6 +30,7 @@ object LocationTransferCodec {
     private val requiredCsvHeaders = setOf(
         "name", "latitude", "longitude", "radiusMeters", "message", "cooldownMinutes", "transitionType", "enabled",
     )
+    private val formulaSensitiveCsvColumns = setOf(0, 1, 5, 10, 11)
 
     fun exportJson(locations: List<SavedLocation>, exportedAt: Long, appVersion: String): String {
         val root = buildJsonObject {
@@ -58,7 +60,9 @@ object LocationTransferCodec {
                         location.enabled.toString(),
                         location.sourceUrl.orEmpty(),
                         location.tags.joinToString("|") { tag -> tag.name },
-                    ).joinToString(",", transform = ::escapeCsv)
+                    ).mapIndexed { index, value ->
+                        escapeCsv(value, neutralizeFormula = index in formulaSensitiveCsvColumns)
+                    }.joinToString(",")
                 )
             }
         }
@@ -68,6 +72,7 @@ object LocationTransferCodec {
     fun parseJson(content: String): TransferParseResult {
         if (content.length > MAX_FILE_CHARS) return TransferParseResult.Failure("ファイルが2MB相当の上限を超えています")
         return runCatching {
+            requireJsonLocationCountWithinLimit(content)
             val root = json.parseToJsonElement(content).jsonObject
             val version = root["schemaVersion"]?.jsonPrimitive?.intOrNull
             require(version == 1 || version == SCHEMA_VERSION) { "未対応のschemaVersionです" }
@@ -157,9 +162,19 @@ object LocationTransferCodec {
         else -> error("$row のenabledが不正です")
     }
 
-    private fun escapeCsv(value: String): String {
-        if (value.none { it == ',' || it == '"' || it == '\r' || it == '\n' }) return value
-        return "\"${value.replace("\"", "\"\"")}\""
+    private fun escapeCsv(value: String, neutralizeFormula: Boolean): String {
+        val firstContentIndex = value.indexOfFirst { !it.isWhitespace() }
+        val safeValue = if (
+            neutralizeFormula &&
+            firstContentIndex >= 0 &&
+            value[firstContentIndex] in setOf('=', '+', '-', '@')
+        ) {
+            "'$value"
+        } else {
+            value
+        }
+        if (safeValue.none { it == ',' || it == '"' || it == '\r' || it == '\n' }) return safeValue
+        return "\"${safeValue.replace("\"", "\"\"")}\""
     }
 
     private fun parseCsvRows(content: String): List<List<String>> {
@@ -173,9 +188,17 @@ object LocationTransferCodec {
             when {
                 quoted && char == '"' && index + 1 < content.length && content[index + 1] == '"' -> { field.append('"'); index++ }
                 char == '"' -> quoted = !quoted
-                !quoted && char == ',' -> { row.add(field.toString()); field.clear() }
+                !quoted && char == ',' -> {
+                    require(row.size < MAX_CSV_COLUMNS) { "CSVの列数が上限を超えています" }
+                    row.add(field.toString())
+                    field.clear()
+                }
                 !quoted && (char == '\r' || char == '\n') -> {
-                    row.add(field.toString()); field.clear(); rows.add(row); row = mutableListOf()
+                    row.add(field.toString())
+                    field.clear()
+                    require(rows.size < MAX_ROWS + 1) { "地点数が${MAX_ROWS}件の上限を超えています" }
+                    rows.add(row)
+                    row = mutableListOf()
                     if (char == '\r' && index + 1 < content.length && content[index + 1] == '\n') index++
                 }
                 else -> field.append(char)
@@ -183,7 +206,119 @@ object LocationTransferCodec {
             index++
         }
         require(!quoted) { "CSVの引用符が閉じていません" }
-        if (field.isNotEmpty() || row.isNotEmpty()) { row.add(field.toString()); rows.add(row) }
+        if (field.isNotEmpty() || row.isNotEmpty()) {
+            require(row.size < MAX_CSV_COLUMNS) { "CSVの列数が上限を超えています" }
+            row.add(field.toString())
+            require(rows.size < MAX_ROWS + 1) { "地点数が${MAX_ROWS}件の上限を超えています" }
+            rows.add(row)
+        }
         return rows
+    }
+
+    /**
+     * Counts the top-level locations array without constructing a JSON tree so oversized
+     * imports fail before kotlinx.serialization allocates every location object.
+     */
+    private fun requireJsonLocationCountWithinLimit(content: String) {
+        var index = content.indexOfFirst { !it.isWhitespace() }
+        if (index < 0 || content[index] != '{') return
+        var depth = 1
+        var expectingTopLevelKey = true
+        index++
+        while (index < content.length && depth > 0) {
+            when (content[index]) {
+                '"' -> {
+                    val token = readJsonString(content, index) ?: return
+                    index = token.second
+                    if (depth == 1 && expectingTopLevelKey) {
+                        expectingTopLevelKey = false
+                        var valueIndex = index
+                        while (valueIndex < content.length && content[valueIndex].isWhitespace()) valueIndex++
+                        if (valueIndex >= content.length || content[valueIndex] != ':') continue
+                        valueIndex++
+                        while (valueIndex < content.length && content[valueIndex].isWhitespace()) valueIndex++
+                        if (token.first == "locations" && valueIndex < content.length && content[valueIndex] == '[') {
+                            index = requireJsonArrayCountWithinLimit(content, valueIndex) ?: return
+                        }
+                    }
+                }
+                '{', '[' -> { depth++; index++ }
+                '}', ']' -> { depth--; index++ }
+                ',' -> {
+                    if (depth == 1) expectingTopLevelKey = true
+                    index++
+                }
+                else -> index++
+            }
+        }
+    }
+
+    private fun requireJsonArrayCountWithinLimit(content: String, openingBracket: Int): Int? {
+        var index = openingBracket + 1
+        var depth = 1
+        var expectingElement = true
+        var count = 0
+        while (index < content.length) {
+            val char = content[index]
+            if (char == '"') {
+                if (depth == 1 && expectingElement) {
+                    count++
+                    require(count <= MAX_ROWS) { "地点数が${MAX_ROWS}件の上限を超えています" }
+                    expectingElement = false
+                }
+                val token = readJsonString(content, index) ?: return null
+                index = token.second
+                continue
+            }
+            if (depth == 1) {
+                when {
+                    char.isWhitespace() -> { index++; continue }
+                    char == ']' -> return index + 1
+                    char == ',' -> { expectingElement = true; index++; continue }
+                    expectingElement -> {
+                        count++
+                        require(count <= MAX_ROWS) { "地点数が${MAX_ROWS}件の上限を超えています" }
+                        expectingElement = false
+                    }
+                }
+            }
+            when (char) {
+                '[', '{' -> depth++
+                ']', '}' -> depth--
+            }
+            index++
+        }
+        return null
+    }
+
+    private fun readJsonString(content: String, openingQuote: Int): Pair<String, Int>? {
+        val decoded = StringBuilder()
+        var index = openingQuote + 1
+        while (index < content.length) {
+            val char = content[index++]
+            when (char) {
+                '"' -> return decoded.toString() to index
+                '\\' -> {
+                    if (index >= content.length) return null
+                    when (val escaped = content[index++]) {
+                        '"', '\\', '/' -> decoded.append(escaped)
+                        'b' -> decoded.append('\b')
+                        'f' -> decoded.append('\u000C')
+                        'n' -> decoded.append('\n')
+                        'r' -> decoded.append('\r')
+                        't' -> decoded.append('\t')
+                        'u' -> {
+                            if (index + 4 > content.length) return null
+                            val codePoint = content.substring(index, index + 4).toIntOrNull(16) ?: return null
+                            decoded.append(codePoint.toChar())
+                            index += 4
+                        }
+                        else -> return null
+                    }
+                }
+                else -> decoded.append(char)
+            }
+        }
+        return null
     }
 }
