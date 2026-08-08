@@ -17,11 +17,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.chikabell.app.ui.locations.LocationFormState
@@ -29,6 +33,7 @@ import com.chikabell.app.ui.locations.LocationsScreen
 import com.chikabell.app.ui.locations.LocationsUiState
 import com.chikabell.app.ui.locations.LocationsViewModel
 import com.chikabell.app.ui.locations.LocationsViewModelFactory
+import com.chikabell.app.ui.locations.PermissionSettingsAction
 import com.chikabell.app.ui.theme.ChikaBellTheme
 import com.chikabell.app.domain.model.RestoreTrigger
 import com.chikabell.app.geofence.GeofenceRestoreScheduler
@@ -211,6 +216,7 @@ private fun sharedIntentFingerprint(intent: Intent): String {
 @Composable
 internal fun ChikaBellApp(sharedPlaceEvents: Flow<SharedPlaceDelivery> = emptyFlow()) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val app = context.applicationContext as ChikaBellApplication
     val viewModel: LocationsViewModel = viewModel(
         factory = LocationsViewModelFactory(
@@ -230,6 +236,13 @@ internal fun ChikaBellApp(sharedPlaceEvents: Flow<SharedPlaceDelivery> = emptyFl
         ),
     )
     val uiState = viewModel.uiState.collectAsStateWithLifecycle().value
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.refreshPermissions()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     LaunchedEffect(sharedPlaceEvents, viewModel) {
         sharedPlaceEvents.collect { delivery ->
             try {
@@ -313,35 +326,50 @@ internal fun ChikaBellApp(sharedPlaceEvents: Flow<SharedPlaceDelivery> = emptyFl
                 onClearSnooze = viewModel::clearSnooze,
                 onCancelEdit = viewModel::requestCancelEdit,
                 onRefreshPermissions = viewModel::refreshPermissions,
-                onRequestForegroundLocation = {
-                    foregroundPermissionLauncher.launch(
-                        arrayOf(
-                            Manifest.permission.ACCESS_FINE_LOCATION,
-                            Manifest.permission.ACCESS_COARSE_LOCATION,
-                        ),
-                    )
-                },
-                onRequestNotification = {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    } else {
-                        viewModel.refreshPermissions()
+                onPermissionSettingsAction = { action ->
+                    when (action) {
+                        PermissionSettingsAction.REQUEST_FOREGROUND_LOCATION -> {
+                            foregroundPermissionLauncher.launch(
+                                arrayOf(
+                                    Manifest.permission.ACCESS_FINE_LOCATION,
+                                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                                ),
+                            )
+                        }
+                        PermissionSettingsAction.REQUEST_NOTIFICATION -> {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                viewModel.refreshPermissions()
+                            }
+                        }
+                        PermissionSettingsAction.REQUEST_ACTIVITY_RECOGNITION -> {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                activityRecognitionLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
+                            } else {
+                                viewModel.refreshPermissions()
+                            }
+                        }
+                        PermissionSettingsAction.OPEN_APP_SETTINGS -> {
+                            context.startActivity(
+                                Intent(
+                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.fromParts("package", context.packageName, null),
+                                ),
+                            )
+                        }
+                        PermissionSettingsAction.OPEN_LOCATION_SETTINGS -> {
+                            context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                        }
+                        PermissionSettingsAction.OPEN_GOOGLE_PLAY_SERVICES_SETTINGS -> {
+                            context.startActivity(
+                                Intent(
+                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.fromParts("package", "com.google.android.gms", null),
+                                ),
+                            )
+                        }
                     }
-                },
-                onRequestActivityRecognition = {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        activityRecognitionLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
-                    } else {
-                        viewModel.refreshPermissions()
-                    }
-                },
-                onOpenAppSettings = {
-                    context.startActivity(
-                        Intent(
-                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                            Uri.fromParts("package", context.packageName, null),
-                        ),
-                    )
                 },
                 onRegisterGeofences = viewModel::registerActiveGeofences,
                 onRestoreGeofences = { GeofenceRestoreScheduler.enqueue(context, RestoreTrigger.MANUAL) },
@@ -458,10 +486,7 @@ private fun ChikaBellPreview() {
                 onClearSnooze = {},
                 onCancelEdit = {},
                 onRefreshPermissions = {},
-                onRequestForegroundLocation = {},
-                onRequestNotification = {},
-                onRequestActivityRecognition = {},
-                onOpenAppSettings = {},
+                onPermissionSettingsAction = {},
                 onRegisterGeofences = {},
                 onRestoreGeofences = {},
                 onSendTestEnterEvent = {},

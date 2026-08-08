@@ -50,7 +50,7 @@ Set-Item -LiteralPath Env:CHIKABELL_KEY_PASSWORD -Value (Read-Host 'Key password
 
 ## release asset候補
 
-- `chikabell-v0.1.0.apk`
+- `chikabell-v0.1.1.apk`
 - `SHA256SUMS.txt`
 
 Play Store用AAB、ストア掲載文、Data Safety申告は対象外。

@@ -107,13 +107,6 @@ import com.chikabell.app.geofence.NearbyDistanceFilter
 import com.chikabell.app.geofence.NearbySavedLocationCandidate
 import com.chikabell.app.geofence.formatApproxStraightLineDistance
 import com.chikabell.app.geofence.selectNearbyCandidates
-import com.chikabell.app.permission.BackgroundLocationStatus
-import com.chikabell.app.permission.ActivityRecognitionStatus
-import com.chikabell.app.permission.ForegroundLocationStatus
-import com.chikabell.app.permission.GooglePlayServicesStatus
-import com.chikabell.app.permission.LocationServicesStatus
-import com.chikabell.app.permission.NotificationPermissionStatus
-import com.chikabell.app.permission.PermissionSnapshot
 import com.chikabell.app.share.SharedPlaceConfidence
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -206,10 +199,7 @@ fun LocationsScreen(
     onClearSnooze: (String) -> Unit,
     onCancelEdit: () -> Unit,
     onRefreshPermissions: () -> Unit,
-    onRequestForegroundLocation: () -> Unit,
-    onRequestNotification: () -> Unit,
-    onRequestActivityRecognition: () -> Unit,
-    onOpenAppSettings: () -> Unit,
+    onPermissionSettingsAction: (PermissionSettingsAction) -> Unit,
     onRegisterGeofences: () -> Unit,
     onRestoreGeofences: () -> Unit,
     onSendTestEnterEvent: () -> Unit,
@@ -429,10 +419,7 @@ fun LocationsScreen(
             SettingsScreen(
                 uiState = uiState,
                 onRefreshPermissions = onRefreshPermissions,
-                onRequestForegroundLocation = onRequestForegroundLocation,
-                onRequestNotification = onRequestNotification,
-                onRequestActivityRecognition = onRequestActivityRecognition,
-                onOpenAppSettings = onOpenAppSettings,
+                onPermissionSettingsAction = onPermissionSettingsAction,
                 onRegisterGeofences = onRegisterGeofences,
                 onRepair = { showRepairDialog = true },
                 onSendTestEnterEvent = onSendTestEnterEvent,
@@ -1995,10 +1982,7 @@ private fun HistoryRow(history: NotificationHistory) {
 private fun SettingsScreen(
     uiState: LocationsUiState,
     onRefreshPermissions: () -> Unit,
-    onRequestForegroundLocation: () -> Unit,
-    onRequestNotification: () -> Unit,
-    onRequestActivityRecognition: () -> Unit,
-    onOpenAppSettings: () -> Unit,
+    onPermissionSettingsAction: (PermissionSettingsAction) -> Unit,
     onRegisterGeofences: () -> Unit,
     onRepair: () -> Unit,
     onSendTestEnterEvent: () -> Unit,
@@ -2013,24 +1997,52 @@ private fun SettingsScreen(
         item { Text("設定", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
         item {
             SettingsSection("権限と端末設定") {
-                uiState.permissionSnapshot?.let { PermissionRows(it) } ?: Text("権限状態を確認中")
-                uiState.backgroundRestriction?.let { restriction ->
-                    val state = when {
-                        restriction.backgroundRestricted -> "制限あり"
-                        restriction.ignoringBatteryOptimizations -> "最適化対象外"
-                        else -> "制限なし"
+                uiState.permissionSnapshot?.let { snapshot ->
+                    val presentation = permissionSettingsPresentation(snapshot, uiState.backgroundRestriction)
+                    PermissionSettingsSummary(presentation)
+                    presentation.items.forEachIndexed { index, item ->
+                        PermissionSettingRow(item)
+                        if (index < presentation.items.lastIndex) HorizontalDivider()
                     }
-                    StatusText("バッテリー", state)
-                }
-                uiState.activitySnapshot?.let { snapshot ->
-                    StatusText("現在の活動状態", snapshot.state.label())
-                    snapshot.updatedAt?.let { Text("最終更新: ${formatEventTime(it)}", style = MaterialTheme.typography.bodySmall) }
-                }
-                Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = onRequestForegroundLocation) { Text("位置許可") }
-                    TextButton(onClick = onRequestNotification) { Text("通知許可") }
-                    TextButton(onClick = onRequestActivityRecognition) { Text("活動認識許可") }
-                    TextButton(onClick = onOpenAppSettings) { Text("Android設定") }
+                    val actionIsRequired = presentation.requiredActionCount > 0
+                    if (actionIsRequired) {
+                        Button(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { onPermissionSettingsAction(presentation.primaryAction) },
+                        ) {
+                            Icon(Icons.Default.Settings, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(presentation.primaryActionLabel)
+                        }
+                    } else {
+                        OutlinedButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { onPermissionSettingsAction(presentation.primaryAction) },
+                        ) {
+                            Icon(Icons.Default.Settings, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(presentation.primaryActionLabel)
+                        }
+                    }
+                } ?: Text("権限状態を確認中")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    uiState.activitySnapshot?.let { snapshot ->
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("検出中の活動: ${snapshot.state.label()}", style = MaterialTheme.typography.bodySmall)
+                            snapshot.updatedAt?.let {
+                                Text("最終更新: ${formatEventTime(it)}", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    } ?: Spacer(Modifier.width(1.dp))
+                    TextButton(onClick = onRefreshPermissions) {
+                        Icon(Icons.Default.Refresh, contentDescription = null)
+                        Spacer(Modifier.width(4.dp))
+                        Text("再確認")
+                    }
                 }
             }
         }
@@ -2196,14 +2208,49 @@ private fun DataSection(
 }
 
 @Composable
-private fun PermissionRows(snapshot: PermissionSnapshot) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        StatusText("通知", snapshot.notificationPermission.label())
-        StatusText("位置", snapshot.foregroundLocation.label())
-        StatusText("バックグラウンド位置", snapshot.backgroundLocation.label())
-        StatusText("位置情報サービス", snapshot.locationServices.label())
-        StatusText("Google Play services", snapshot.googlePlayServices.label())
-        StatusText("活動認識", snapshot.activityRecognition.label())
+private fun PermissionSettingsSummary(presentation: PermissionSettingsPresentation) {
+    val needsAction = presentation.requiredActionCount > 0
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = if (needsAction) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
+        contentColor = if (needsAction) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(presentation.summaryTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(presentation.summaryMessage, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun PermissionSettingRow(item: PermissionSettingItem) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Text(item.title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(
+                when (item.health) {
+                    PermissionSettingHealth.READY -> "設定済み"
+                    PermissionSettingHealth.ACTION_REQUIRED -> "設定が必要"
+                    PermissionSettingHealth.OPTIONAL -> "任意"
+                    PermissionSettingHealth.CHECKING -> "確認中"
+                },
+                color = when (item.health) {
+                    PermissionSettingHealth.ACTION_REQUIRED -> MaterialTheme.colorScheme.error
+                    PermissionSettingHealth.OPTIONAL -> MaterialTheme.colorScheme.tertiary
+                    else -> MaterialTheme.colorScheme.primary
+                },
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        Text("現在: ${item.currentStatus}", style = MaterialTheme.typography.bodyMedium)
+        Text("推奨: ${item.recommendedStatus}", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+        Text(item.purpose, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -2251,18 +2298,6 @@ private fun NumberField(
     )
 }
 
-private fun NotificationPermissionStatus.label() = when (this) {
-    NotificationPermissionStatus.Granted -> "許可"
-    NotificationPermissionStatus.Denied -> "未許可"
-    NotificationPermissionStatus.NotRequired -> "不要"
-}
-
-private fun ActivityRecognitionStatus.label() = when (this) {
-    ActivityRecognitionStatus.Granted -> "許可"
-    ActivityRecognitionStatus.Denied -> "未許可（速度で代替）"
-    ActivityRecognitionStatus.NotRequired -> "不要"
-}
-
 private fun com.chikabell.app.geofence.DetectedMotion.label() = when (this) {
     com.chikabell.app.geofence.DetectedMotion.STILL -> "静止"
     com.chikabell.app.geofence.DetectedMotion.WALKING -> "徒歩"
@@ -2270,29 +2305,6 @@ private fun com.chikabell.app.geofence.DetectedMotion.label() = when (this) {
     com.chikabell.app.geofence.DetectedMotion.ON_BICYCLE -> "自転車"
     com.chikabell.app.geofence.DetectedMotion.IN_VEHICLE -> "車両"
     com.chikabell.app.geofence.DetectedMotion.UNKNOWN -> "不明"
-}
-
-private fun ForegroundLocationStatus.label() = when (this) {
-    ForegroundLocationStatus.Precise -> "正確な位置 許可"
-    ForegroundLocationStatus.ApproximateOnly -> "おおよその位置のみ"
-    ForegroundLocationStatus.Denied -> "未許可"
-}
-
-private fun BackgroundLocationStatus.label() = when (this) {
-    BackgroundLocationStatus.Granted -> "許可"
-    BackgroundLocationStatus.Denied -> "未許可"
-    BackgroundLocationStatus.NotRequired -> "不要"
-}
-
-private fun LocationServicesStatus.label() = when (this) {
-    LocationServicesStatus.Enabled -> "ON"
-    LocationServicesStatus.Disabled -> "OFF"
-}
-
-private fun GooglePlayServicesStatus.label() = when (this) {
-    GooglePlayServicesStatus.Available -> "利用可能"
-    GooglePlayServicesStatus.UserResolvableError -> "更新または対応が必要"
-    GooglePlayServicesStatus.Unavailable -> "利用不可"
 }
 
 private fun DeliveryStatus.label() = when (this) {
