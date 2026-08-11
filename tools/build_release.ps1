@@ -53,7 +53,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 New-Item -ItemType Directory -Path $output -Force | Out-Null
-$targetName = "chikabell-v0.1.1.apk"
+$targetName = "chikabell-v0.1.2.apk"
 $target = Join-Path $output $targetName
 Copy-Item -LiteralPath $apk -Destination $target -Force
 

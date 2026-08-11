@@ -12,6 +12,7 @@ internal enum class LocationRegistrationMode {
 }
 
 internal enum class LocationFormSection {
+    NAME,
     DETAILS,
     NOTIFICATION,
     COORDINATES,
@@ -70,6 +71,8 @@ internal fun locationRegistrationPresentation(
         }
     val mapWasOpened = uiState.sharedRegistrationSession?.phase ==
         RegistrationSessionPhase.AWAITING_MAP_CONFIRMATION
+    val isSharedPlaceRecovery = uiState.sharedPlace?.failureReason != null ||
+        uiState.sharedRegistrationSession != null
 
     return LocationRegistrationPresentation(
         mode = mode,
@@ -86,8 +89,11 @@ internal fun locationRegistrationPresentation(
         mapActionLabel = if (mapWasOpened) "もう一度Googleマップで確認" else "Googleマップで確認",
         guidance = when (mode) {
             LocationRegistrationMode.RESOLVING -> "共有リンクから位置を確認しています"
-            LocationRegistrationMode.NEEDS_LOCATION ->
+            LocationRegistrationMode.NEEDS_LOCATION -> if (isSharedPlaceRecovery) {
+                "共有リンクから緯度・経度を取得できませんでした。"
+            } else {
                 "住所・施設名から候補を検索するか、緯度・経度を入力してください"
+            }
             LocationRegistrationMode.NEEDS_CONFIRMATION -> "必要なら地図で位置を見直せます"
             LocationRegistrationMode.READY -> "位置を設定しました"
             LocationRegistrationMode.SAVING -> "この内容を保存しています"
@@ -109,7 +115,10 @@ internal fun locationFormSectionsForValidation(
     if (message.isBlank()) return emptySet()
 
     return buildSet {
-        if (listOf("名前", "メモ", "タグ").any(message::contains)) {
+        if (message.contains("名前")) {
+            add(LocationFormSection.NAME)
+        }
+        if (listOf("メモ", "タグ").any(message::contains)) {
             add(LocationFormSection.DETAILS)
         }
         if (listOf("半径", "滞在", "再通知", "通知間隔", "クールダウン").any(message::contains)) {

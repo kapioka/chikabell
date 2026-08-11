@@ -26,8 +26,8 @@ android {
         applicationId = "com.chikabell.app"
         minSdk = 29
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.1.1"
+        versionCode = 3
+        versionName = "0.1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -144,6 +144,7 @@ val allJvmUnitTests = tasks.register<JavaExec>("allJvmUnitTests") {
         "com.chikabell.app.SharedRegistrationReducerTest",
         "com.chikabell.app.SendTestNotificationUseCaseTest",
         "com.chikabell.app.PermissionSettingsPresentationTest",
+        "com.chikabell.app.LocationRegistrationPresentationTest",
     )
 }
 
