@@ -65,6 +65,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -1147,8 +1148,7 @@ private fun LocationEditScreen(
     val disclosureKey = uiState.sharedRegistrationSession?.sessionId
         ?: uiState.editingLocation?.id
         ?: "new-location"
-    var detailsExpanded by rememberSaveable(disclosureKey) { mutableStateOf(form.name.isBlank()) }
-    var notificationExpanded by rememberSaveable(disclosureKey) { mutableStateOf(false) }
+    var extrasExpanded by rememberSaveable(disclosureKey) { mutableStateOf(false) }
     var coordinatesExpanded by rememberSaveable(disclosureKey) { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val firstItemIndex = if (continuousProgress == null) 0 else 1
@@ -1156,6 +1156,9 @@ private fun LocationEditScreen(
         validationMessage = uiState.validationMessage,
         blockReason = if (uiState.validationMessage == null) null else blockReason,
     )
+    val isSharedLocationRecovery = presentation.mode == LocationRegistrationMode.NEEDS_LOCATION &&
+        (uiState.sharedPlace != null || uiState.sharedRegistrationSession != null)
+    val showCoordinateDisclosure = !isSharedLocationRecovery
     LaunchedEffect(
         scrollToSharedPlaceOnError,
         uiState.validationMessage,
@@ -1163,13 +1166,20 @@ private fun LocationEditScreen(
         disclosureKey,
     ) {
         if (uiState.validationMessage != null) {
-            if (LocationFormSection.DETAILS in validationSections) detailsExpanded = true
-            if (LocationFormSection.NOTIFICATION in validationSections) notificationExpanded = true
-            if (LocationFormSection.COORDINATES in validationSections) coordinatesExpanded = true
+            if (
+                LocationFormSection.DETAILS in validationSections ||
+                LocationFormSection.NOTIFICATION in validationSections
+            ) {
+                extrasExpanded = true
+            }
+            if (showCoordinateDisclosure && LocationFormSection.COORDINATES in validationSections) {
+                coordinatesExpanded = true
+            }
             val targetIndex = when {
-                LocationFormSection.DETAILS in validationSections -> firstItemIndex + 1
-                LocationFormSection.NOTIFICATION in validationSections -> firstItemIndex + 2
-                LocationFormSection.COORDINATES in validationSections -> firstItemIndex + 3
+                LocationFormSection.NAME in validationSections -> firstItemIndex
+                LocationFormSection.DETAILS in validationSections ||
+                    LocationFormSection.NOTIFICATION in validationSections -> firstItemIndex + 1
+                showCoordinateDisclosure && LocationFormSection.COORDINATES in validationSections -> firstItemIndex + 2
                 else -> firstItemIndex
             }
             listState.animateScrollToItem(targetIndex)
@@ -1237,7 +1247,13 @@ private fun LocationEditScreen(
                 LocationPositionSection(
                     uiState = uiState,
                     presentation = presentation,
-                    validationMessage = uiState.validationMessage.takeIf { validationSections.isEmpty() },
+                    nameValidationMessage = uiState.validationMessage.takeIf {
+                        LocationFormSection.NAME in validationSections
+                    },
+                    validationMessage = uiState.validationMessage.takeIf {
+                        validationSections.isEmpty() ||
+                            (!showCoordinateDisclosure && LocationFormSection.COORDINATES in validationSections)
+                    },
                     onFormChange = onFormChange,
                     onSelectCandidate = onSelectSharedPlaceCandidate,
                     onConfirmAndSave = onConfirmSharedPlaceCandidateAndSave,
@@ -1249,20 +1265,12 @@ private fun LocationEditScreen(
             }
             item {
                 RegistrationDisclosure(
-                    title = "名前・メモを編集",
-                    icon = Icons.Default.Edit,
-                    expanded = detailsExpanded,
+                    title = "メモ・タグ・通知条件",
+                    icon = null,
+                    expanded = extrasExpanded,
                     enabled = !uiState.isSaving,
-                    onToggle = { detailsExpanded = !detailsExpanded },
+                    onToggle = { extrasExpanded = !extrasExpanded },
                 ) {
-                    OutlinedTextField(
-                        modifier = Modifier.fillMaxWidth(),
-                        value = form.name,
-                        onValueChange = { onFormChange(form.copy(name = it)) },
-                        label = { Text("名前") },
-                        singleLine = true,
-                        enabled = !uiState.isSaving,
-                    )
                     OutlinedTextField(
                         modifier = Modifier.fillMaxWidth(),
                         value = form.message,
@@ -1316,19 +1324,7 @@ private fun LocationEditScreen(
                             }
                         }
                     }
-                    if (LocationFormSection.DETAILS in validationSections) {
-                        InlineValidationMessage(uiState.validationMessage.orEmpty())
-                    }
-                }
-            }
-            item {
-                RegistrationDisclosure(
-                    title = "通知条件を編集",
-                    icon = Icons.Default.Settings,
-                    expanded = notificationExpanded,
-                    enabled = !uiState.isSaving,
-                    onToggle = { notificationExpanded = !notificationExpanded },
-                ) {
+                    HorizontalDivider()
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1364,12 +1360,15 @@ private fun LocationEditScreen(
                         onFormChange = onFormChange,
                         enabled = !uiState.isSaving,
                     )
-                    if (LocationFormSection.NOTIFICATION in validationSections) {
+                    if (
+                        LocationFormSection.DETAILS in validationSections ||
+                        LocationFormSection.NOTIFICATION in validationSections
+                    ) {
                         InlineValidationMessage(uiState.validationMessage.orEmpty())
                     }
                 }
             }
-            item {
+            if (showCoordinateDisclosure) item {
                 RegistrationDisclosure(
                     title = "緯度・経度を確認",
                     icon = Icons.Default.LocationOn,
@@ -1472,6 +1471,7 @@ private fun NotificationSettingsFields(
 private fun LocationPositionSection(
     uiState: LocationsUiState,
     presentation: LocationRegistrationPresentation,
+    nameValidationMessage: String?,
     validationMessage: String?,
     onFormChange: (LocationFormState) -> Unit,
     onSelectCandidate: (Int) -> Unit,
@@ -1489,9 +1489,24 @@ private fun LocationPositionSection(
             "${"%.5f".format(Locale.US, candidate.latitude)}|${"%.5f".format(Locale.US, candidate.longitude)}"
         }
     val hasAlternatives = candidateChoices.size > 1 || uiState.addressCandidates.size > 1
+    val recoveryCandidateCount = candidateChoices.size + uiState.addressCandidates.size
     var showAlternatives by rememberSaveable(place?.sourceUrl, place?.selectedCandidateIndex) {
         mutableStateOf(false)
     }
+    val registrationKey = uiState.sharedRegistrationSession?.sessionId
+        ?: uiState.editingLocation?.id
+        ?: "new-location"
+    var editingName by rememberSaveable(registrationKey) { mutableStateOf(uiState.form.name.isBlank()) }
+    var showAddressSearch by rememberSaveable(registrationKey) {
+        mutableStateOf(recoveryCandidateCount == 0)
+    }
+    LaunchedEffect(nameValidationMessage) {
+        if (nameValidationMessage != null) editingName = true
+    }
+    LaunchedEffect(recoveryCandidateCount) {
+        if (recoveryCandidateCount > 0) showAddressSearch = false
+    }
+    val isSharedRegistration = place != null || uiState.sharedRegistrationSession != null
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -1515,23 +1530,39 @@ private fun LocationPositionSection(
                             Text(presentation.guidance, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
+                    EditableRegistrationNameCard(
+                        name = uiState.form.name,
+                        editing = editingName,
+                        showSharedHeading = isSharedRegistration,
+                        enabled = !uiState.isSaving,
+                        validationMessage = nameValidationMessage,
+                        onStartEditing = { editingName = true },
+                        onFinishEditing = { editingName = false },
+                        onNameChange = { onFormChange(uiState.form.copy(name = it)) },
+                    )
                 }
 
                 LocationRegistrationMode.NEEDS_CONFIRMATION -> {
                     Text("この場所で合っていますか？", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    CandidateSummary(
-                        title = presentation.candidateTitle,
-                        address = presentation.candidateAddress,
-                    )
-                    OutlinedButton(
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    EditableRegistrationNameCard(
+                        name = uiState.form.name,
+                        editing = editingName,
+                        showSharedHeading = isSharedRegistration,
                         enabled = !uiState.isSaving,
-                        onClick = onOpenMap,
-                    ) {
-                        Icon(Icons.Default.LocationOn, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text(presentation.mapActionLabel)
-                    }
+                        validationMessage = nameValidationMessage,
+                        onStartEditing = { editingName = true },
+                        onFinishEditing = { editingName = false },
+                        onNameChange = { onFormChange(uiState.form.copy(name = it)) },
+                    )
+                    CandidateRadioCard(
+                        label = presentation.candidateAddress ?: presentation.candidateTitle,
+                        selected = true,
+                        enabled = !uiState.isSaving,
+                        onSelect = null,
+                        mapActionLabel = presentation.mapActionLabel,
+                        mapEnabled = !uiState.isSaving,
+                        onMap = onOpenMap,
+                    )
                     Text(
                         presentation.guidance,
                         modifier = Modifier.fillMaxWidth(),
@@ -1562,76 +1593,126 @@ private fun LocationPositionSection(
                         }
                     }
                     if (showAlternatives) {
-                        candidateChoices.forEachIndexed { displayIndex, (sourceIndex, _) ->
-                            if (sourceIndex != place?.selectedCandidateIndex) {
-                                OutlinedButton(
-                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                                    enabled = !uiState.isSaving,
-                                    onClick = {
+                        candidateChoices.forEachIndexed { displayIndex, (sourceIndex, candidate) ->
+                            CandidateRadioRow(
+                                label = "候補${displayIndex + 1}・${candidate.userFacingSource}",
+                                supportingText = "${candidate.latitude}, ${candidate.longitude}",
+                                selected = sourceIndex == place?.selectedCandidateIndex,
+                                enabled = !uiState.isSaving,
+                                onSelect = {
+                                    if (sourceIndex != place?.selectedCandidateIndex) {
                                         showAlternatives = false
                                         onSelectCandidate(sourceIndex)
-                                    },
-                                ) { Text("候補${displayIndex + 1}を使用") }
-                            }
+                                    }
+                                },
+                            )
                         }
                         uiState.addressCandidates.forEachIndexed { index, candidate ->
-                            if (candidate.label != uiState.form.address) {
-                                OutlinedButton(
-                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                                    enabled = !uiState.isSaving,
-                                    onClick = {
+                            val isSelected = uiState.form.latitude.toDoubleOrNull() == candidate.latitude &&
+                                uiState.form.longitude.toDoubleOrNull() == candidate.longitude
+                            CandidateRadioRow(
+                                label = candidate.label,
+                                selected = isSelected,
+                                enabled = !uiState.isSaving,
+                                onSelect = {
+                                    if (!isSelected) {
                                         showAlternatives = false
                                         onSelectAddressCandidate(index)
-                                    },
-                                ) {
-                                    Text(candidate.label, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                    }
                                 }
-                            }
+                            )
                         }
                     }
                 }
 
                 LocationRegistrationMode.NEEDS_LOCATION -> {
-                    Text("場所を設定してください", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("位置を確認してください", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(presentation.guidance, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    place?.warnings.orEmpty().forEach { warning ->
-                        Text(warning, style = MaterialTheme.typography.bodySmall)
-                    }
-                    place?.failureReason?.let { reason ->
-                        InlineValidationMessage(reason)
-                    }
-                    OutlinedTextField(
-                        modifier = Modifier.fillMaxWidth(),
-                        value = uiState.form.address,
-                        onValueChange = { onFormChange(uiState.form.copy(address = it.take(256))) },
-                        label = { Text("住所・施設名") },
-                        singleLine = true,
+                    EditableRegistrationNameCard(
+                        name = uiState.form.name,
+                        editing = editingName,
+                        showSharedHeading = isSharedRegistration,
                         enabled = !uiState.isSaving,
+                        validationMessage = nameValidationMessage,
+                        onStartEditing = { editingName = true },
+                        onFinishEditing = { editingName = false },
+                        onNameChange = { onFormChange(uiState.form.copy(name = it)) },
                     )
-                    Button(
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                        enabled = !uiState.isSaving &&
-                            !uiState.isAddressSearching &&
-                            uiState.form.address.trim().length >= 3,
-                        onClick = onSearchAddressCandidates,
-                    ) {
-                        if (uiState.isAddressSearching) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                            Spacer(Modifier.width(8.dp))
+                    if (recoveryCandidateCount > 0) {
+                        Text(
+                            "確認する候補を選択（${recoveryCandidateCount}件）",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        candidateChoices.forEachIndexed { displayIndex, (sourceIndex, candidate) ->
+                            CandidateRadioCard(
+                                label = "候補${displayIndex + 1}・${candidate.userFacingSource}",
+                                selected = sourceIndex == place?.selectedCandidateIndex,
+                                enabled = !uiState.isSaving,
+                                onSelect = { onSelectCandidate(sourceIndex) },
+                                mapActionLabel = "選択した候補をGoogleマップで確認",
+                                mapEnabled = false,
+                                onMap = null,
+                            )
                         }
-                        Text(if (uiState.isAddressSearching) "検索中" else "住所・施設名で検索")
+                        uiState.addressCandidates.forEachIndexed { index, candidate ->
+                            CandidateRadioCard(
+                                label = candidate.label,
+                                selected = false,
+                                enabled = !uiState.isSaving,
+                                onSelect = { onSelectAddressCandidate(index) },
+                                mapActionLabel = "選択した候補をGoogleマップで確認",
+                                mapEnabled = false,
+                                onMap = null,
+                            )
+                        }
+                        TextButton(
+                            modifier = Modifier.align(Alignment.CenterHorizontally).heightIn(min = 48.dp),
+                            enabled = !uiState.isSaving,
+                            onClick = { showAddressSearch = !showAddressSearch },
+                        ) {
+                            Text(if (showAddressSearch) "検索欄を閉じる" else "別の住所・施設名で検索")
+                        }
                     }
-                    OutlinedButton(
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                        enabled = !uiState.isSaving &&
-                            (uiState.form.address.isNotBlank() || uiState.form.name.isNotBlank()),
-                        onClick = onOpenQueryMap,
-                    ) {
-                        Icon(Icons.Default.LocationOn, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Googleマップで確認")
+                    if (showAddressSearch || recoveryCandidateCount == 0) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedTextField(
+                                modifier = Modifier.fillMaxWidth(),
+                                value = uiState.form.address,
+                                onValueChange = { onFormChange(uiState.form.copy(address = it.take(256))) },
+                                label = { Text("住所・施設名") },
+                                singleLine = true,
+                                enabled = !uiState.isSaving,
+                            )
+                            Button(
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                                enabled = !uiState.isSaving &&
+                                    !uiState.isAddressSearching &&
+                                    uiState.form.address.trim().length >= 3,
+                                onClick = onSearchAddressCandidates,
+                            ) {
+                                if (uiState.isAddressSearching) {
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                Text(if (uiState.isAddressSearching) "検索中" else "住所・施設名で検索")
+                            }
+                            OutlinedButton(
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                                enabled = !uiState.isSaving &&
+                                    (uiState.form.address.isNotBlank() || uiState.form.name.isNotBlank()),
+                                onClick = onOpenQueryMap,
+                            ) {
+                                Icon(Icons.Default.LocationOn, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Googleマップで検索")
+                            }
+                        }
                     }
-                    uiState.addressSearchMessage?.let { message ->
+                    uiState.addressSearchMessage
+                        ?.takeIf { recoveryCandidateCount == 0 }
+                        ?.let { message ->
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             color = MaterialTheme.colorScheme.primaryContainer,
@@ -1641,20 +1722,7 @@ private fun LocationPositionSection(
                             Text(message, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
                         }
                     }
-                    uiState.addressCandidates.forEachIndexed { index, candidate ->
-                        OutlinedButton(
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                            enabled = !uiState.isSaving,
-                            onClick = { onSelectAddressCandidate(index) },
-                        ) {
-                            Text(candidate.label, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                    Text(
-                        "Googleマップから座標を共有し直しても、名前やメモなどの入力内容は保持されます",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    RegistrationRetentionBanner()
                 }
 
                 LocationRegistrationMode.READY,
@@ -1667,8 +1735,18 @@ private fun LocationPositionSection(
                         Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Text("位置を設定しました", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                     }
+                    EditableRegistrationNameCard(
+                        name = uiState.form.name,
+                        editing = editingName,
+                        showSharedHeading = isSharedRegistration,
+                        enabled = !uiState.isSaving,
+                        validationMessage = nameValidationMessage,
+                        onStartEditing = { editingName = true },
+                        onFinishEditing = { editingName = false },
+                        onNameChange = { onFormChange(uiState.form.copy(name = it)) },
+                    )
                     CandidateSummary(
-                        title = presentation.candidateTitle,
+                        title = "選択した位置",
                         address = presentation.candidateAddress,
                     )
                     OutlinedButton(
@@ -1690,6 +1768,223 @@ private fun LocationPositionSection(
             validationMessage?.takeIf(String::isNotBlank)?.let { message ->
                 InlineValidationMessage(message)
             }
+        }
+    }
+}
+
+@Composable
+private fun EditableRegistrationNameCard(
+    name: String,
+    editing: Boolean,
+    showSharedHeading: Boolean,
+    enabled: Boolean,
+    validationMessage: String?,
+    onStartEditing: () -> Unit,
+    onFinishEditing: () -> Unit,
+    onNameChange: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (showSharedHeading) {
+            Text(
+                "共有から取得できた情報",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = enabled && !editing, onClick = onStartEditing),
+            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+            shape = RoundedCornerShape(14.dp),
+            tonalElevation = 1.dp,
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (editing) {
+                    OutlinedTextField(
+                        modifier = Modifier.fillMaxWidth(),
+                        value = name,
+                        onValueChange = onNameChange,
+                        label = { Text("登録する名前") },
+                        singleLine = true,
+                        enabled = enabled,
+                        isError = validationMessage != null,
+                        trailingIcon = {
+                            IconButton(onClick = onFinishEditing, enabled = enabled) {
+                                Icon(Icons.Default.Check, contentDescription = "名前の編集を完了")
+                            }
+                        },
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.primary,
+                            shape = RoundedCornerShape(50),
+                        ) {
+                            Icon(
+                                Icons.Default.LocationOn,
+                                contentDescription = null,
+                                modifier = Modifier.padding(10.dp).size(26.dp),
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                "登録する名前",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                name.ifBlank { "名前を入力してください" },
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        IconButton(onClick = onStartEditing, enabled = enabled) {
+                            Icon(Icons.Default.Edit, contentDescription = "登録する名前を編集")
+                        }
+                    }
+                }
+                validationMessage?.let { InlineValidationMessage(it) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CandidateRadioCard(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onSelect: (() -> Unit)?,
+    mapActionLabel: String,
+    mapEnabled: Boolean,
+    onMap: (() -> Unit)?,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLowest,
+        shape = RoundedCornerShape(16.dp),
+        tonalElevation = 1.dp,
+    ) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = enabled && onSelect != null, onClick = { onSelect?.invoke() })
+                    .padding(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RadioButton(
+                    selected = selected,
+                    onClick = onSelect,
+                    enabled = enabled && onSelect != null,
+                )
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    shape = RoundedCornerShape(50),
+                ) {
+                    Icon(
+                        Icons.Default.LocationOn,
+                        contentDescription = null,
+                        modifier = Modifier.padding(8.dp).size(24.dp),
+                    )
+                }
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        "住所（候補）",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                }
+            }
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 14.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("緯度・経度", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Text("未確認", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium)
+                }
+            }
+            Button(
+                modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 14.dp).heightIn(min = 48.dp),
+                enabled = mapEnabled && onMap != null,
+                onClick = { onMap?.invoke() },
+            ) {
+                Icon(Icons.Default.LocationOn, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text(mapActionLabel)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CandidateRadioRow(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onSelect: () -> Unit,
+    supportingText: String? = null,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onSelect),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLowest,
+        shape = RoundedCornerShape(12.dp),
+        tonalElevation = 1.dp,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RadioButton(selected = selected, onClick = onSelect, enabled = enabled)
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(label, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                supportingText?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RegistrationRetentionBanner() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        shape = RoundedCornerShape(12.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Default.Info, contentDescription = null)
+            Text("名前・メモ・タグ・通知条件は保持されています", style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
@@ -1729,7 +2024,7 @@ private fun CandidateSummary(
 @Composable
 private fun RegistrationDisclosure(
     title: String,
-    icon: ImageVector,
+    icon: ImageVector?,
     expanded: Boolean,
     enabled: Boolean,
     onToggle: () -> Unit,
@@ -1756,7 +2051,9 @@ private fun RegistrationDisclosure(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                icon?.let {
+                    Icon(it, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                }
                 Text(title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Icon(
                     if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,

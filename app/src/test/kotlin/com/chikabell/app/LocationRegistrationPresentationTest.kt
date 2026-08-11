@@ -88,6 +88,28 @@ class LocationRegistrationPresentationTest {
         assertEquals(LocationRegistrationMode.NEEDS_LOCATION, presentation.mode)
         assertFalse(presentation.topSaveEnabled)
         assertFalse(presentation.showConfirmAndSave)
+        assertEquals(
+            "住所・施設名から候補を検索するか、緯度・経度を入力してください",
+            presentation.guidance,
+        )
+    }
+
+    @Test
+    fun sharedPlaceFailureUsesFriendlyCoordinateGuidance() {
+        val presentation = locationRegistrationPresentation(
+            LocationsUiState(
+                form = LocationFormState(name = "共有された店舗"),
+                sharedPlace = candidate().copy(
+                    latitude = null,
+                    longitude = null,
+                    confidence = SharedPlaceConfidence.UNRESOLVED,
+                    failureReason = "dead_link",
+                ),
+            ),
+        )
+
+        assertEquals(LocationRegistrationMode.NEEDS_LOCATION, presentation.mode)
+        assertEquals("共有リンクから緯度・経度を取得できませんでした。", presentation.guidance)
     }
 
     @Test
@@ -123,7 +145,7 @@ class LocationRegistrationPresentationTest {
     @Test
     fun validationErrorsRevealOnlyRelevantDisclosureSections() {
         assertEquals(
-            setOf(LocationFormSection.DETAILS),
+            setOf(LocationFormSection.NAME),
             locationFormSectionsForValidation("名前は1文字以上100文字以内で入力してください", null),
         )
         assertEquals(
@@ -140,6 +162,10 @@ class LocationRegistrationPresentationTest {
         assertEquals(
             setOf(LocationFormSection.NOTIFICATION, LocationFormSection.COORDINATES),
             locationFormSectionsForValidation("数値の入力を確認してください", null),
+        )
+        assertEquals(
+            setOf(LocationFormSection.DETAILS, LocationFormSection.NOTIFICATION),
+            locationFormSectionsForValidation("メモとタグ、半径を確認してください", null),
         )
     }
 
