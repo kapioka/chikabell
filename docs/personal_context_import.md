@@ -32,7 +32,7 @@ Optional/conditional extras:
 
 The receiver rejects unsupported versions, source mismatch, missing/mismatched dedupe identity, partial coordinate pairs, or out-of-range coordinates. At least a name, address, or coordinate pair must remain usable.
 
-The validated payload is normalized into `SharedPlaceParser` with a `personal-context:<dedupe-key>` lineage so the existing ChikaBell registration-review pipeline remains in control.
+The validated payload is normalized into `SharedPlaceParser` with the stable dedupe key as its root lineage so the existing ChikaBell registration-review pipeline remains in control.
 
 ## Privacy
 

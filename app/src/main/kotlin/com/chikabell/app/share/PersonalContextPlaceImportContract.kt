@@ -76,7 +76,7 @@ object PersonalContextPlaceImportContract {
             subject = name,
             texts = texts,
             uris = uris,
-            rootLineageId = "personal-context:$dedupeKey",
+            rootLineageId = dedupeKey,
         )
     }
 

@@ -92,7 +92,7 @@ class SharedIntentNormalizerTest {
         assertNotNull(event)
         assertEquals(34.70, event!!.place.latitude!!, 0.0)
         assertEquals(135.50, event.place.longitude!!, 0.0)
-        assertEquals("personal-context:$dedupeKey", event.place.rootLineageId)
+        assertEquals(dedupeKey, event.place.rootLineageId)
     }
 
     @Test
