@@ -48,6 +48,15 @@
 
                 <data android:scheme="geo" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="com.chikabell.app.action.IMPORT_PLACE" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data
+                    android:scheme="chikabell"
+                    android:host="import-place" />
+            </intent-filter>
         </activity>
 
         <receiver

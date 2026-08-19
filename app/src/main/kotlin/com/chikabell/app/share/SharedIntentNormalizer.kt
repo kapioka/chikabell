@@ -19,15 +19,34 @@ object SharedIntentNormalizer {
     fun normalize(intent: Intent): SharedPlaceEvent? = normalizeInternal(intent, emptyList())
 
     suspend fun normalize(context: Context, intent: Intent): SharedPlaceEvent? {
-        val metadataTexts = withTimeoutOrNull(ATTACHMENT_TIMEOUT_MS) {
-            runInterruptible(Dispatchers.IO) {
-                SharedAttachmentMetadataReader.read(context, intent)
-            }
-        }.orEmpty()
+        val metadataTexts = if (intent.action == PersonalContextPlaceImportContract.ACTION_IMPORT_PLACE) {
+            emptyList()
+        } else {
+            withTimeoutOrNull(ATTACHMENT_TIMEOUT_MS) {
+                runInterruptible(Dispatchers.IO) {
+                    SharedAttachmentMetadataReader.read(context, intent)
+                }
+            }.orEmpty()
+        }
         return normalizeInternal(intent, metadataTexts)
     }
 
     private fun normalizeInternal(intent: Intent, metadataTexts: List<String>): SharedPlaceEvent? {
+        PersonalContextPlaceImportContract.normalize(intent)?.let { payload ->
+            val eventId = UUID.randomUUID().toString()
+            return SharedPlaceEvent(
+                eventId = eventId,
+                place = SharedPlaceParser.parse(
+                    subject = payload.subject,
+                    texts = payload.texts,
+                    uris = payload.uris,
+                    htmlTexts = emptyList(),
+                    metadataTexts = emptyList(),
+                    rootLineageId = payload.rootLineageId,
+                ),
+            )
+        }
+
         val isSupportedSend = intent.action == Intent.ACTION_SEND &&
             (
                 intent.type.equals("text/plain", true) ||
