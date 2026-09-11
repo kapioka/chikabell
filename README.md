@@ -43,26 +43,12 @@
 
 旅行、出張、ドライブなどで気になる場所を、ChatGPTなどのAIに選んでもらい、ちかベル用CSVとしてまとめて登録できます。
 
-1. AIへ目的地・好み・避けたい条件を伝える
-2. AIに[公式AI出力仕様](docs/ai-import-spec.md)を読ませてCSVを作成する
-3. ちかベルでCSVを開き、インポートプレビューを確認する
+1. [`コピペ用Prompt`](docs/ai-import-prompt.md) を開き、コードブロックをコピーする
+2. 目的地・好み・避けたい条件・件数などを書き換えてAIへ送る
+3. AIが作成したCSVをちかベルで開き、インポートプレビューを確認する
 4. 問題がなければまとめて登録する
 
-短い依頼例:
-
-```text
-ちかベル用に地点を一括登録したいです。
-次の公式仕様を取得して必ず従ってください。取得できない場合は推測で作成せず停止してください。
-https://raw.githubusercontent.com/kapioka/chikabell/main/docs/ai-import-spec.md
-
-目的地: 福岡・熊本
-探したいもの: 飲食店、酒蔵、クラフトビール
-好み: 肉料理、日本酒、焼酎
-避けたいもの: 明太子、クセの強い魚介
-件数: 15〜20地点
-
-可能ならダウンロードできるCSVファイルとして出力してください。
-```
+CSVの詳細条件は[公式AI出力仕様](docs/ai-import-spec.md)を正本とし、コピペ用PromptからAIがその最新版を参照する設計です。
 
 詳しい手順は[`docs/ai-import-guide.md`](docs/ai-import-guide.md)、正常なCSV例は[`docs/ai-import-example.csv`](docs/ai-import-example.csv)を参照してください。
 
