@@ -1,0 +1,2 @@
+﻿id,name,latitude,longitude,radiusMeters,message,loiteringDelaySeconds,cooldownMinutes,transitionType,enabled,sourceUrl,tags
+,サンプル地点A,35.000000,135.000000,300,AI一括登録の形式確認用サンプルです。実在地点ではありません。,60,720,DWELL,false,,サンプル|旅行|カフェ
