@@ -115,7 +115,7 @@ release候補の検証:
 .\tools\build_release.ps1
 ```
 
-`build_release.ps1`は署名環境変数が不足している場合、ビルド前に失敗し、`dist/`へAPKを作成しません。署名後のAPKを`apksigner`で検証できた場合だけ配布物とSHA-256を生成します。署名方法は[docs/github_release.md`](docs/github_release.md)を参照してください。
+`build_release.ps1`は署名環境変数が不足している場合、ビルド前に失敗し、`dist/`へAPKを作成しません。署名後のAPKを`apksigner`で検証できた場合だけ配布物とSHA-256を生成します。署名方法は[docs/github_release.md](docs/github_release.md)を参照してください。
 
 ## インストール
 
