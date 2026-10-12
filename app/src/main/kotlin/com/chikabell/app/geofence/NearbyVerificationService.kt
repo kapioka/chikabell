@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -97,7 +98,10 @@ class NearbyVerificationService : Service() {
             return runCatching {
                 ContextCompat.startForegroundService(context, intent)
                 true
-            }.getOrDefault(false)
+            }.getOrElse { error ->
+                Log.w("NearbyVerification", "Service start rejected: ${error.javaClass.simpleName}")
+                false
+            }
         }
     }
 }

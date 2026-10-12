@@ -9,28 +9,34 @@ import com.chikabell.app.domain.model.TransitionType
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingEvent
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 
 class GeofenceBroadcastReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val pendingResult = goAsync()
         val app = context.applicationContext as ChikaBellApplication
-        app.applicationScope.launch(Dispatchers.IO) {
+        val job = app.applicationScope.launch(Dispatchers.IO) {
             try {
                 processIntent(app, intent)
-            } finally {
-                pendingResult.finish()
+            } catch (_: TimeoutCancellationException) {
+                Log.w(TAG, "Geofence event handoff timed out")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // Intent extras and exception messages may contain private location data.
+                Log.w(TAG, "Geofence event handoff failed: ${error.javaClass.simpleName}")
             }
         }
+        job.invokeOnCompletion { pendingResult.finish() }
     }
 
     private suspend fun processIntent(app: ChikaBellApplication, intent: Intent) {
         if (intent.action == ACTION_DEBUG_ENTER) {
             val requestId = intent.getStringExtra(EXTRA_REQUEST_ID) ?: return
             val eventAt = System.currentTimeMillis()
-            if (!NearbyVerificationService.start(app, listOf(requestId), TransitionType.DWELL, eventAt)) {
-                app.container.processGeofenceEventUseCase.execute(requestId, TransitionType.DWELL, eventAt)
-            }
+            handOff(app, listOf(requestId), TransitionType.DWELL, eventAt)
             return
         }
 
@@ -42,16 +48,17 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         val transition = geofencingEvent.geofenceTransition.toTransitionType() ?: return
         val eventAt = System.currentTimeMillis()
         val requestIds = geofencingEvent.triggeringGeofences.orEmpty().map { it.requestId }
-        if (transition != TransitionType.EXIT &&
-            NearbyVerificationService.start(app, requestIds, transition, eventAt)
-        ) return
-        requestIds.forEach { requestId ->
-            app.container.processGeofenceEventUseCase.execute(
-                requestId = requestId,
-                transitionType = transition,
-                eventAt = eventAt,
-            )
-        }
+        handOff(app, requestIds, transition, eventAt)
+    }
+
+    private suspend fun handOff(app: ChikaBellApplication, ids: List<String>, transition: TransitionType, eventAt: Long) {
+        GeofenceEventHandoff.deliver(
+            requestIds = ids,
+            transition = transition,
+            eventAt = eventAt,
+            startService = { requestIds, type, at -> NearbyVerificationService.start(app, requestIds, type, at) },
+            enqueue = { requestIds, type, at -> GeofenceEventWorker.enqueue(app, requestIds, type, at) },
+        )
     }
 
     companion object {

@@ -11,6 +11,7 @@ import com.chikabell.app.domain.model.TransitionType
 import com.chikabell.app.domain.repository.HistoryRepository
 import com.chikabell.app.domain.repository.LocationRepository
 import com.chikabell.app.geofence.CurrentLocation
+import com.chikabell.app.geofence.GeofenceEventHandoff
 import com.chikabell.app.geofence.CurrentLocationSource
 import com.chikabell.app.geofence.ActivitySnapshot
 import com.chikabell.app.geofence.ActivityStateSource
@@ -30,11 +31,56 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProcessGeofenceEventUseCaseTest {
+    @Test fun `service rejection releases handoff while worker verification remains suspended`() = runBlocking {
+        val fixture = fixture(
+            location(),
+            current = CurrentLocation(35.009, 139.0, 20F, "outer", 1_000L, 1F),
+            blockVerification = true,
+        )
+        var worker: kotlinx.coroutines.Job? = null
+        try {
+            withTimeout(1_000L) {
+                GeofenceEventHandoff.deliver(
+                    listOf("place"), TransitionType.ENTER, 10_000L,
+                    startService = { _, _, _ -> false },
+                    enqueue = { ids, type, at ->
+                        // Persistence returns while execution belongs to an independent worker.
+                        worker = this@runBlocking.launch {
+                            fixture.useCase.execute(ids.single(), type, at)
+                        }
+                    },
+                )
+            }
+            withTimeout(1_000L) { fixture.source.verificationStarted.await() }
+            assertTrue(worker!!.isActive)
+            assertEquals(NearbyState.VERIFYING, fixture.locations.current.nearbyState)
+
+            var exitWorker: kotlinx.coroutines.Job? = null
+            withTimeout(1_000L) {
+                GeofenceEventHandoff.deliver(
+                    listOf("place"), TransitionType.EXIT, 11_000L,
+                    startService = { _, _, _ -> error("EXIT must not start a service") },
+                    enqueue = { ids, type, at ->
+                        exitWorker = this@runBlocking.launch { fixture.useCase.execute(ids.single(), type, at) }
+                    },
+                )
+                exitWorker!!.join()
+                worker!!.join()
+            }
+            assertTrue(fixture.source.verificationCancelled)
+            assertEquals(NearbyState.MONITORING, fixture.locations.current.nearbyState)
+            assertEquals(0, fixture.poster.posted.size)
+        } finally {
+            worker?.cancel()
+        }
+    }
+
     @Test fun `confirmed sample posts once and enters rearm wait`() = runBlocking {
         val fixture = fixture(location())
         val result = fixture.useCase.execute("place", TransitionType.ENTER, 10_000L)

@@ -1,0 +1,14 @@
+// Opt-in package isolation for Issue #18 device tests. No signing or permissions changes.
+gradle.beforeProject { p ->
+    p.pluginManager.withPlugin('com.android.application') {
+        p.extensions.getByName('android').buildTypes.named('debug') {
+            applicationIdSuffix = '.issue18qa'
+            versionNameSuffix = '-issue18qa'
+        }
+        p.extensions.getByName('android').sourceSets.getByName('debug').manifest.srcFile(
+            new File(p.rootDir, 'tools/issue18qa/AndroidManifest.xml')
+        )
+        // KSP requires generated sources on the same drive as the project on Windows.
+        p.layout.buildDirectory.set(new File(p.projectDir, 'build/issue18qa'))
+    }
+}
