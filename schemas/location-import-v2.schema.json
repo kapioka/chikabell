@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/kapioka/chikabell/main/schemas/location-import-v2.schema.json",
+  "title": "ChikaBell existing location import v2",
+  "type": "object",
+  "required": ["schemaVersion", "locations"],
+  "properties": {
+    "schemaVersion": {"const": 2},
+    "locations": {
+      "type": "array", "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "required": ["name", "message", "latitude", "longitude", "radiusMeters", "cooldownMinutes", "transitionType", "enabled"],
+        "properties": {
+          "id": {"type": "string"},
+          "name": {"type": "string", "minLength": 1, "maxLength": 100},
+          "message": {"type": "string", "maxLength": 500},
+          "latitude": {"type": "number", "minimum": -90, "maximum": 90},
+          "longitude": {"type": "number", "minimum": -180, "maximum": 180},
+          "radiusMeters": {"type": "integer", "minimum": 100, "maximum": 5000},
+          "loiteringDelaySeconds": {"type": "integer", "minimum": 15, "maximum": 3600},
+          "cooldownMinutes": {"type": "integer", "minimum": 0, "maximum": 43200},
+          "transitionType": {"const": "DWELL"},
+          "enabled": {"type": "boolean"},
+          "sourceUrl": {"type": "string", "format": "uri", "pattern": "^https://"},
+          "tags": {"type": "array", "maxItems": 5, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 30}}
+        }
+      }
+    }
+  }
+}
