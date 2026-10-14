@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application android:allowBackup="false" android:label="ちかベル ChatGPT 接続確認" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity android:name=".SiwcPocActivity" android:exported="true" android:launchMode="singleTask">
+            <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+            <intent-filter><action android:name="android.intent.action.VIEW"/><category android:name="android.intent.category.DEFAULT"/><category android:name="android.intent.category.BROWSABLE"/><data android:scheme="chikabell-siwc" android:host="return"/></intent-filter>
+        </activity>
+    </application>
+</manifest>

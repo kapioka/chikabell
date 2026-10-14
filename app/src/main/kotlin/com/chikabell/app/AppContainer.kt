@@ -35,6 +35,7 @@ class AppContainer(context: Context) {
 
     val locationRepository: LocationRepository = LocationRepositoryImpl(
         locationDao = database.locationDao(),
+        database = database,
     )
     val historyRepository: HistoryRepository = HistoryRepositoryImpl(
         historyDao = database.notificationHistoryDao(),

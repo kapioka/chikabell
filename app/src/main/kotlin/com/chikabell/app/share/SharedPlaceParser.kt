@@ -535,11 +535,8 @@ object SharedPlaceParser {
         identityEvidence: List<PlaceIdentityEvidence> = emptyList(),
         rootLineageId: String? = null,
     ): ParsedSharedPlace {
-        val unique = candidates
-            .asSequence()
-            .distinctBy { it.dedupeKey }
-            .take(MAX_COORDINATE_CANDIDATES)
-            .toList()
+        val unique = candidates.asSequence().distinctBy { it.dedupeKey }
+            .take(MAX_COORDINATE_CANDIDATES).toList()
         if (unique.isEmpty()) {
             val warning = if (shortUrl != null) {
                 "Googleマップの短縮URLを確認しています"

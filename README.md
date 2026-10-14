@@ -18,10 +18,10 @@
 
 ## 現在の状態
 
-- バージョン: `0.1.3`
+- 公開版: [`0.1.3`](https://github.com/kapioka/chikabell/releases/tag/v0.1.3)。開発候補: `0.2.0-rc1`（実機QA・公開前）。
 - 対応OS: Android 10（API 29）以上
 - 実機検証済み: Pixel 10a / Android 17のみ
-- 配布方針: ソースコードと署名済みAPKをGitHubで公開。Play Store公開予定なし
+- 配布方針: ソースコードと署名済みAPKをGitHubで公開済み。Play Store公開予定なし
 - サポート方針: 無保証・自己責任。Issue、Pull Request、個別サポートは受け付けない
 
 ## 主な機能
@@ -38,21 +38,16 @@
 - 再起動・アプリ更新後の監視復元と診断
 - JSONバックアップ・復元
 - UTF-8 BOM付きCSV入出力と安全なimport preview
+- 候補版: 検索条件をChatGPTへコピー・共有し、JSONを貼り付けて選択取り込み
+- 候補版: 本人のChatGPT接続によるアプリ内地点検索、住所からの位置確認、承認プレビュー
 
-## AIで地点を一括登録
+## AIで地点をまとめて登録
 
-旅行、出張、ドライブなどで気になる場所を、ChatGPTなどのAIに選んでもらい、ちかベル用CSVとしてまとめて登録できます。
+候補版では「AIで場所を探す」で条件を入力し、ChatGPTへコピー・共有するか、本人のChatGPT接続でアプリ内検索を行います。候補と位置を確認し、選んだJSONを既存の取り込みプレビューへ進め、承認してから保存します。
 
-1. [`コピペ用Prompt`](docs/ai-import-prompt.md) を開き、コードブロックをコピーする
-2. 目的地・好み・避けたい条件・件数などを書き換えてAIへ送る
-3. AIが作成したCSVをちかベルで開き、インポートプレビューを確認する
-4. 問題がなければまとめて登録する
+対応JSONは[地点Import Contract](docs/ai-import-contract.md)、検索・出力の手順は[Workflow](docs/ai-place-search-workflow.md)を参照してください。アプリ内検索はAndroidの住所検索で別途位置を確認するため、位置候補を取得できない場所はGoogleマップ共有・手動確認を使ってください。
 
-CSVの詳細条件は[公式AI出力仕様](docs/ai-import-spec.md)を正本とし、コピペ用PromptからAIがその最新版を参照する設計です。
-
-詳しい手順は[`docs/ai-import-guide.md`](docs/ai-import-guide.md)、正常なCSV例は[`docs/ai-import-example.csv`](docs/ai-import-example.csv)を参照してください。
-
-この方法は、ちかベルがAIサービスへ地点情報を自動送信する機能ではありません。ユーザー自身がAIへ条件を伝え、生成されたCSVを読み込む方式です。
+従来のCSV方式も利用できます。[コピペ用Prompt](docs/ai-import-prompt.md)で条件を指定し、AIが作ったCSVを取り込みプレビューで確認して登録します。[公式CSV仕様](docs/ai-import-spec.md)、[操作ガイド](docs/ai-import-guide.md)、[架空の形式例](docs/ai-import-example.csv)を参照してください。
 
 ## 権限
 
@@ -63,7 +58,7 @@ CSVの詳細条件は[公式AI出力仕様](docs/ai-import-spec.md)を正本と�
 - 位置情報のフォアグラウンドサービス: Geofence受信後の確認中だけ測位を継続し、完了時に停止するため
 - 起動完了受信: 端末再起動後にGeofence監視を復元するため
 
-本アプリはGoogleマップ短縮URLを展開するために`INTERNET`権限を使用します。通信先はGoogle Maps関連のHTTPSホストに限定し、独自サーバー・広告・解析SDKは使用しません。保存済み地点や通知履歴をアプリ独自に外部送信する機能はありません。接近検知には端末のGoogle Play servicesを使用します。
+本アプリはGoogleマップ短縮URLの展開と、利用者が選択したChatGPT接続・地点検索に`INTERNET`権限を使用します。検索は確認した条件だけを送信し、端末現在地は明示選択・承認した場合だけ含めます。保存済み地点や通知履歴はChatGPTへ自動送信しません。独自サーバー・広告・解析SDKは使用しません。接近検知には端末のGoogle Play servicesを使用します。詳細は[プライバシー説明](PRIVACY.md)を参照してください。
 
 ## プライバシーとバックアップ
 
@@ -83,10 +78,12 @@ JSON/CSVには座標やメモが含まれます。公開リポジトリ、Issue�
 
 ## 開発・検証
 
+次回更新に向けて選定した作業は[ロードマップ / ToDo](docs/roadmap.md)を参照してください。
+
 前提:
 
 - JDK 17
-- Android SDK 36
+- Android SDK 37（compileSdk。minSdk 29 / targetSdk 36）
 - Windows PowerShell（このリポジトリの既存検証環境）
 
 ```powershell
@@ -101,7 +98,7 @@ release候補の検証:
 .\tools\build_release.ps1
 ```
 
-`build_release.ps1`は署名環境変数が不足している場合、ビルド前に失敗し、`dist/`へAPKを作成しません。署名後のAPKを`apksigner`で検証できた場合だけ配布物とSHA-256を生成します。署名方法は[docs/github_release.md](docs/github_release.md)を参照してください。
+初回は `Setup-Signing.cmd` で既存鍵とパスワードを登録し、以後は `Build-Release.cmd` を使います。`build_release.ps1`は登録済みの暗号化署名設定が不足している場合、ビルド前に失敗し、`dist/`へAPKを作成しません。署名後のAPKを`apksigner`で検証できた場合だけ配布物とSHA-256を生成します。署名方法は[docs/github_release.md](docs/github_release.md)を参照してください。
 
 ## インストール
 

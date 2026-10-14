@@ -67,6 +67,7 @@ private data class SharedIntentEnvelope(
 )
 
 class MainActivity : ComponentActivity() {
+    private val transfers = Channel<Pair<String, TransferFormat>>(capacity = 8)
     private val sharedIntentEnvelopes = Channel<SharedIntentEnvelope>(capacity = 64)
     private val sharedPlaceDeliveries = Channel<SharedPlaceDelivery>(capacity = 64)
     private val queuedFingerprints = ConcurrentHashMap.newKeySet<String>()
@@ -82,7 +83,7 @@ class MainActivity : ComponentActivity() {
         }
         GeofenceRestoreScheduler.enqueue(this, RestoreTrigger.APP_START)
         setContent {
-            ChikaBellApp(sharedPlaceDeliveries.receiveAsFlow())
+            ChikaBellApp(sharedPlaceDeliveries.receiveAsFlow(), transfers.receiveAsFlow())
         }
         startSharedIntentActor()
         acceptSharedIntent(intent, acceptRepeatedDelivery = false)
@@ -133,6 +134,12 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             for (envelope in sharedIntentEnvelopes) {
                 try {
+                    val transfer = incomingTransfer(envelope.processingIntent)
+                    if (transfer != null) {
+                        transfers.send(transfer)
+                        lastHandledLaunchFingerprint = envelope.fingerprint
+                        continue
+                    }
                     val event = SharedIntentNormalizer.normalize(
                         this@MainActivity,
                         envelope.processingIntent,
@@ -178,6 +185,28 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @Suppress("DEPRECATION")
+    private fun incomingTransfer(source: Intent): Pair<String, TransferFormat>? {
+        source.getStringExtra(com.chikabell.app.ai.AiSearchActivity.EXTRA_IMPORT_JSON)?.let {
+            return (if (it.length <= com.chikabell.app.ai.AiSearchActivity.MAX_AI_TEXT_CHARS) it else "") to TransferFormat.JSON
+        }
+        if (source.action != Intent.ACTION_SEND && source.action != Intent.ACTION_VIEW) return null
+        val type = source.type.orEmpty()
+        val isJson = type in setOf("application/json", "text/json")
+        val isCsv = type in setOf("text/csv", "text/comma-separated-values")
+        val text = source.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+        if (text != null && (isJson || isCsv || text.trim().let { it.startsWith("{") || it.startsWith("[") || it.startsWith("```") || it.contains("\"schemaVersion\"") })) {
+            return text to if (isCsv) TransferFormat.CSV else TransferFormat.JSON
+        }
+        val uri = (source.getParcelableExtra<android.os.Parcelable>(Intent.EXTRA_STREAM) as? Uri)
+            ?: source.data ?: source.clipData?.let { if (it.itemCount > 0) it.getItemAt(0).uri else null }
+        if (uri?.scheme == "content" && (isJson || isCsv)) {
+            return try { readTransferText(this, uri) to if (isCsv) TransferFormat.CSV else TransferFormat.JSON }
+            catch (_: Exception) { "" to if (isCsv) TransferFormat.CSV else TransferFormat.JSON }
+        }
+        return null
+    }
+
     private suspend fun deliverSharedEvent(event: SharedPlaceEvent) {
         val delivery = SharedPlaceDelivery(event)
         sharedPlaceDeliveries.send(delivery)
@@ -214,7 +243,7 @@ private fun sharedIntentFingerprint(intent: Intent): String {
 }
 
 @Composable
-internal fun ChikaBellApp(sharedPlaceEvents: Flow<SharedPlaceDelivery> = emptyFlow()) {
+internal fun ChikaBellApp(sharedPlaceEvents: Flow<SharedPlaceDelivery> = emptyFlow(), transferEvents: Flow<Pair<String, TransferFormat>> = emptyFlow()) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val app = context.applicationContext as ChikaBellApplication
@@ -236,6 +265,9 @@ internal fun ChikaBellApp(sharedPlaceEvents: Flow<SharedPlaceDelivery> = emptyFl
         ),
     )
     val uiState = viewModel.uiState.collectAsStateWithLifecycle().value
+    LaunchedEffect(transferEvents, viewModel) {
+        transferEvents.collect { (content, format) -> viewModel.previewImport(content, format) }
+    }
     DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) viewModel.refreshPermissions()
@@ -381,6 +413,7 @@ internal fun ChikaBellApp(sharedPlaceEvents: Flow<SharedPlaceDelivery> = emptyFl
                 onImportJson = { importJsonLauncher.launch(arrayOf("application/json", "text/json", "text/plain")) },
                 onImportCsv = { importCsvLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain")) },
                 onConfirmImport = viewModel::confirmImport,
+                onToggleImportCandidate = viewModel::toggleImportCandidate,
                 onCancelImport = viewModel::cancelImport,
                 onHistoryFilterChange = viewModel::updateHistoryFilter,
                 onDeleteAllHistory = viewModel::deleteAllHistory,

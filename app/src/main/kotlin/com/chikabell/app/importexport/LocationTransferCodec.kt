@@ -42,6 +42,22 @@ object LocationTransferCodec {
         return json.encodeToString(JsonElement.serializer(), root)
     }
 
+    fun encodeImportJson(records: List<LocationTransferRecord>): String = buildJsonObject {
+        require(records.size <= MAX_ROWS) { "地点数が上限を超えています" }
+        put("schemaVersion", SCHEMA_VERSION)
+        put("locations", buildJsonArray {
+            records.forEach { record -> add(buildJsonObject {
+                record.id?.let { put("id", it) }
+                put("name", record.name); put("message", record.message)
+                put("latitude", record.latitude); put("longitude", record.longitude); put("radiusMeters", record.radiusMeters)
+                put("loiteringDelaySeconds", record.loiteringDelaySeconds); put("cooldownMinutes", record.cooldownMinutes)
+                put("transitionType", "DWELL"); put("enabled", record.enabled)
+                record.sourceUrl?.let { put("sourceUrl", it) }
+                put("tags", JsonArray(record.tags.map(::JsonPrimitive)))
+            }) }
+        })
+    }.toString()
+
     fun exportCsv(locations: List<SavedLocation>): String {
         val rows = buildList {
             add(csvHeaders.joinToString(","))
@@ -189,7 +205,7 @@ object LocationTransferCodec {
                 quoted && char == '"' && index + 1 < content.length && content[index + 1] == '"' -> { field.append('"'); index++ }
                 char == '"' -> quoted = !quoted
                 !quoted && char == ',' -> {
-                    require(row.size < MAX_CSV_COLUMNS) { "CSVの列数が上限を超えています" }
+                    require(row.size < MAX_CSV_COLUMNS - 1) { "CSVの列数が上限を超えています" }
                     row.add(field.toString())
                     field.clear()
                 }
