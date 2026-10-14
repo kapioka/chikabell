@@ -227,10 +227,14 @@ fun LocationsScreen(
     onDismissPendingSharedPlace: () -> Unit,
     onDismissDiscardRegistration: () -> Unit,
     onDiscardRegistration: () -> Unit,
+    onToggleImportCandidate: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var screenName by rememberSaveable { mutableStateOf(AppScreen.LOCATIONS.name) }
     val screen = AppScreen.valueOf(screenName)
+    LaunchedEffect(uiState.importPreview) {
+        if (uiState.importPreview != null) screenName = AppScreen.DATA.name
+    }
     var saveRequestBaseline by rememberSaveable { mutableStateOf<Long?>(null) }
     var showRepairDialog by rememberSaveable { mutableStateOf(false) }
     var continuousEditIds by remember { mutableStateOf(emptyList<String>()) }
@@ -467,6 +471,7 @@ fun LocationsScreen(
             onImportJson = onImportJson,
             onImportCsv = onImportCsv,
             onConfirmImport = onConfirmImport,
+            onToggleImportCandidate = onToggleImportCandidate,
             onCancelImport = onCancelImport,
             modifier = modifier,
         )
@@ -653,6 +658,10 @@ private fun LocationsHomeScreen(
                 }
             }
             MonitoringSummary(uiState = uiState, onOpenSettings = { onNavigate(AppScreen.SETTINGS) })
+            val aiContext = androidx.compose.ui.platform.LocalContext.current
+            OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = {
+                aiContext.startActivity(android.content.Intent(aiContext, com.chikabell.app.ai.AiSearchActivity::class.java))
+            }) { Text("AIで場所を探す / JSONを貼り付け") }
             uiState.registrationMessage?.let { message -> FeedbackText(message) }
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -2421,6 +2430,7 @@ private fun DataManagementScreen(
     onImportJson: () -> Unit,
     onImportCsv: () -> Unit,
     onConfirmImport: () -> Unit,
+    onToggleImportCandidate: (Int) -> Unit,
     onCancelImport: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -2474,11 +2484,34 @@ private fun DataManagementScreen(
                         Text("読込 ${preview.totalCount}件 / 新規 ${preview.candidates.size}件 / 重複 ${preview.duplicateCount}件")
                         preview.errors.forEach { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                         Text("既存地点の削除・上書きは行いません。", style = MaterialTheme.typography.bodySmall)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(enabled = preview.canApply && !uiState.isImporting, onClick = onConfirmImport) {
-                                Text(if (uiState.isImporting) "追加中" else "${preview.candidates.size}件を追加")
+                        Text("登録する候補の名前・座標・根拠を確認し、不要な候補の選択を外してください。", style = MaterialTheme.typography.bodySmall)
+                        preview.candidates.forEachIndexed { index, candidate ->
+                            val draft = candidate.draft
+                            val reviewContext = androidx.compose.ui.platform.LocalContext.current
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = index in uiState.importSelectedIndices, enabled = !uiState.isImporting, onCheckedChange = { onToggleImportCandidate(index) })
+                                Column(Modifier.weight(1f)) {
+                                    Text(draft.name, fontWeight = FontWeight.SemiBold)
+                                    Text("緯度 ${draft.latitude} / 経度 ${draft.longitude}", style = MaterialTheme.typography.bodySmall)
+                                    Text("通知半径 ${draft.radiusMeters}m", style = MaterialTheme.typography.bodySmall)
+                                    if (draft.message.isNotBlank()) Text(draft.message, style = MaterialTheme.typography.bodySmall)
+                                    draft.sourceUrl?.let { url ->
+                                        TextButton(enabled = com.chikabell.app.ai.AiImportText.safeSource(url), onClick = {
+                                            runCatching { reviewContext.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
+                                        }) { Text("根拠URLを開く") }
+                                    }
+                                    TextButton(onClick = {
+                                        val url = "https://www.google.com/maps/search/?api=1&query=${draft.latitude},${draft.longitude}"
+                                        runCatching { reviewContext.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
+                                    }) { Text("地図で位置を確認") }
+                                }
                             }
-                            OutlinedButton(onClick = onCancelImport) { Text("キャンセル") }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(enabled = preview.canApply && uiState.importSelectedIndices.isNotEmpty() && !uiState.isImporting, onClick = onConfirmImport) {
+                                Text(if (uiState.isImporting) "追加中" else "${uiState.importSelectedIndices.size}件を追加")
+                            }
+                            OutlinedButton(enabled = !uiState.isImporting, onClick = onCancelImport) { Text("キャンセル") }
                         }
                     }
                 }

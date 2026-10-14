@@ -13,21 +13,20 @@ val hasReleaseSigning = listOf(
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
 }
 
 android {
     namespace = "com.chikabell.app"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.chikabell.app"
         minSdk = 29
         targetSdk = 36
-        versionCode = 5
-        versionName = "0.1.3"
+        versionCode = 6
+        versionName = "0.2.0-rc1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -65,9 +64,18 @@ android {
     }
 
     sourceSets {
+        getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/aiContractAssets").get().asFile)
         getByName("androidTest").assets.srcDir("$projectDir/schemas")
     }
 }
+
+val syncAiContractAssets = tasks.register<Sync>("syncAiContractAssets") {
+    from(rootProject.projectDir) {
+        include("ai/AGENTS.md", "docs/ai-import-contract.md", "docs/ai-place-search-workflow.md", "schemas/location-import-v2.schema.json")
+    }
+    into(layout.buildDirectory.dir("generated/aiContractAssets"))
+}
+tasks.named("preBuild").configure { dependsOn(syncAiContractAssets) }
 
 tasks.register("printReleaseSigningStatus") {
     group = "verification"
@@ -83,6 +91,7 @@ ksp {
 }
 
 dependencies {
+    implementation(project(":siwc"))
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
@@ -114,11 +123,9 @@ val allJvmUnitTests = tasks.register<JavaExec>("allJvmUnitTests") {
     group = "verification"
     description = "Runs all JVM tests without Gradle's Windows Unicode-path test worker issue."
     dependsOn("compileDebugUnitTestJavaWithJavac")
-    classpath = files(
-        layout.buildDirectory.dir("intermediates/javac/debugUnitTest/compileDebugUnitTestJavaWithJavac/classes"),
-        layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest"),
-    ) + configurations.getByName("debugUnitTestRuntimeClasspath")
+    classpath = tasks.named<Test>("testDebugUnitTest").get().classpath
     mainClass.set("org.junit.runner.JUnitCore")
+    systemProperty("chikabell.repo.root", rootProject.projectDir.absolutePath)
     args(
         "com.chikabell.app.PlaceholderTest",
         "com.chikabell.app.LocationValidatorTest",
@@ -143,8 +150,11 @@ val allJvmUnitTests = tasks.register<JavaExec>("allJvmUnitTests") {
         "com.chikabell.app.OpenLocationCodeDecoderTest",
         "com.chikabell.app.PngTextMetadataExtractorTest",
         "com.chikabell.app.SharedRegistrationReducerTest",
-        "com.chikabell.app.SendTestNotificationUseCaseTest",
         "com.chikabell.app.PermissionSettingsPresentationTest",
+        "com.chikabell.app.AiSearchContractTest",
+        "com.chikabell.app.AiPlaceVerifierTest",
+        "com.chikabell.app.PublicImportContractTest",
+        "com.chikabell.app.SendTestNotificationUseCaseTest",
         "com.chikabell.app.LocationRegistrationPresentationTest",
     )
 }

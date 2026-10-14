@@ -14,15 +14,17 @@ import com.chikabell.app.domain.repository.RestoreDiagnosticsRepository
 import com.chikabell.app.domain.validation.LocationValidationError
 import com.chikabell.app.domain.validation.LocationValidator
 import com.chikabell.app.geofence.ReconcileGeofencesUseCase
+import com.chikabell.app.geofence.ProcessGeofenceEventResult
 import com.chikabell.app.geofence.ProcessGeofenceEventUseCase
+import com.chikabell.app.notification.SendTestNotificationUseCase
+import com.chikabell.app.notification.TestNotificationResult
 import com.chikabell.app.geofence.ReconcileResult
 import com.chikabell.app.geofence.CheckCurrentLocationUseCase
 import com.chikabell.app.geofence.CurrentLocationCheckResult
 import com.chikabell.app.geofence.FindNearbySavedLocationsUseCase
 import com.chikabell.app.geofence.NearbyDistanceFilter
 import com.chikabell.app.geofence.NearbySavedLocationsResult
-import com.chikabell.app.notification.SendTestNotificationUseCase
-import com.chikabell.app.notification.TestNotificationResult
+import com.chikabell.app.domain.model.RegistrationStatus
 import com.chikabell.app.permission.PermissionStateReader
 import com.chikabell.app.permission.BackgroundRestrictionReader
 import com.chikabell.app.share.ParsedSharedPlace
@@ -52,6 +54,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -571,7 +574,7 @@ class LocationsViewModel(
 
     fun previewImport(content: String, format: TransferFormat) {
         val parsed = when (format) {
-            TransferFormat.JSON -> LocationTransferCodec.parseJson(content)
+            TransferFormat.JSON -> com.chikabell.app.ai.AiImportText.parse(content)
             TransferFormat.CSV -> LocationTransferCodec.parseCsv(content)
         }
         when (parsed) {
@@ -580,28 +583,48 @@ class LocationsViewModel(
             }
             is TransferParseResult.Success -> {
                 val preview = LocationImportPlanner.preview(parsed.records, _uiState.value.locations, format)
-                _uiState.update { it.copy(importPreview = preview, registrationMessage = null) }
+                _uiState.update { it.copy(importPreview = preview, importSelectedIndices = preview.candidates.indices.toSet(), registrationMessage = null) }
             }
         }
     }
 
     fun cancelImport() {
-        _uiState.update { it.copy(importPreview = null) }
+        if (!_uiState.value.isImporting) _uiState.update { it.copy(importPreview = null, importSelectedIndices = emptySet()) }
+    }
+
+    fun toggleImportCandidate(index: Int) {
+        if (_uiState.value.isImporting || index !in (_uiState.value.importPreview?.candidates?.indices ?: IntRange.EMPTY)) return
+        _uiState.update { it.copy(importSelectedIndices = if (index in it.importSelectedIndices) it.importSelectedIndices - index else it.importSelectedIndices + index) }
     }
 
     fun confirmImport() {
         val preview = _uiState.value.importPreview ?: return
-        if (!preview.canApply) return
+        if (!preview.canApply || _uiState.value.isImporting) return
+        val selected = preview.candidates.filterIndexed { index, _ -> index in _uiState.value.importSelectedIndices }
+        if (selected.isEmpty()) return
+        _uiState.update { it.copy(isImporting = true) }
         viewModelScope.launch {
-            _uiState.update { it.copy(isImporting = true) }
+            val current = repository.observeLocations().first()
+            val records = selected.map { candidate ->
+                val draft = candidate.draft
+                com.chikabell.app.importexport.LocationTransferRecord(candidate.originalId, draft.name, draft.message,
+                    draft.latitude, draft.longitude, draft.radiusMeters, draft.loiteringDelaySeconds, draft.cooldownMinutes,
+                    draft.enabled, draft.sourceUrl, draft.tags)
+            }
+            val rechecked = LocationImportPlanner.preview(records, current, preview.format)
+            if (!rechecked.canApply || rechecked.candidates != selected) {
+                _uiState.update { it.copy(isImporting = false, importPreview = rechecked, importSelectedIndices = rechecked.candidates.indices.toSet(),
+                    registrationMessage = "地点一覧が変わったため確認を更新しました。件数・重複・エラーを再確認してください") }
+                return@launch
+            }
             runCatching {
-                repository.addImportedLocations(preview.candidates)
+                repository.addImportedLocations(selected)
                 reconcileGeofencesUseCase.execute()
             }.onSuccess { reconcileResult ->
                 val message = when (reconcileResult) {
-                    is ReconcileResult.Registered -> "${preview.candidates.size}件を追加し、${reconcileResult.count}件の監視設定を更新しました"
-                    is ReconcileResult.Blocked -> "${preview.candidates.size}件を追加しました。監視登録できません: ${reconcileResult.reason}"
-                    is ReconcileResult.Failed -> "${preview.candidates.size}件を追加しました。監視登録に失敗しました: ${reconcileResult.message}"
+                    is ReconcileResult.Registered -> "${selected.size}件を追加し、${reconcileResult.count}件の監視設定を更新しました"
+                    is ReconcileResult.Blocked -> "${selected.size}件を追加しました。監視登録できません: ${reconcileResult.reason}"
+                    is ReconcileResult.Failed -> "${selected.size}件を追加しました。監視登録に失敗しました: ${reconcileResult.message}"
                 }
                 _uiState.update {
                     it.copy(

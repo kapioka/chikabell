@@ -3,6 +3,7 @@ package com.chikabell.app.importexport
 import com.chikabell.app.domain.model.LocationDraft
 import com.chikabell.app.domain.model.SavedLocation
 import com.chikabell.app.domain.model.SourceType
+import com.chikabell.app.domain.model.TagRules
 import com.chikabell.app.domain.validation.LocationValidator
 import com.chikabell.app.geofence.DistanceCalculator
 
@@ -33,6 +34,10 @@ object LocationImportPlanner {
                 tags = record.tags,
             )
             val validationErrors = LocationValidator.validate(draft)
+            if (record.tags.size > TagRules.MAX_TAGS_PER_LOCATION || record.tags.any { it.trim().length > TagRules.MAX_TAG_NAME_LENGTH }) {
+                errors += "${index + 1}件目のタグ数または文字数が上限を超えています"
+                return@forEachIndexed
+            }
             if (validationErrors.isNotEmpty()) {
                 errors += "${index + 1}件目の地点データが不正です: ${validationErrors.joinToString { it.name }}"
                 return@forEachIndexed

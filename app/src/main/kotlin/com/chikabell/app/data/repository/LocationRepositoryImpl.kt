@@ -19,9 +19,12 @@ import com.chikabell.app.importexport.LocationImportCandidate
 import com.chikabell.app.geofence.NearbyVerificationPolicy
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import androidx.room.withTransaction
+import com.chikabell.app.data.database.AppDatabase
 
 class LocationRepositoryImpl(
     private val locationDao: LocationDao,
+    private val database: AppDatabase,
 ) : LocationRepository {
     override fun observeLocations(): Flow<List<SavedLocation>> {
         return locationDao.observeAllWithTags().map { locations ->
@@ -73,6 +76,7 @@ class LocationRepositoryImpl(
 
     override suspend fun addImportedLocations(candidates: List<LocationImportCandidate>) {
         if (candidates.isEmpty()) return
+        database.withTransaction {
         val now = System.currentTimeMillis()
         var sortOrder = locationDao.nextSortOrder()
         val imported = candidates.map { candidate ->
@@ -105,6 +109,7 @@ class LocationRepositoryImpl(
         }
         locationDao.insertAll(imported.map { it.first })
         imported.forEach { (entity, tags) -> replaceLocationTags(entity.id, tags) }
+        }
     }
 
     override suspend fun updateLocation(location: SavedLocation, draft: LocationDraft) {

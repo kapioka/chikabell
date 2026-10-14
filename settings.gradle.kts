@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "ChikaBell"
 include(":app")
+include(":siwc", ":siwc-poc")

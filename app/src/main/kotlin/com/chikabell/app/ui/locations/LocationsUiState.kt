@@ -35,6 +35,7 @@ data class LocationsUiState(
     val isSaving: Boolean = false,
     val saveSuccessId: Long = 0L,
     val importPreview: LocationImportPreview? = null,
+    val importSelectedIndices: Set<Int> = emptySet(),
     val isImporting: Boolean = false,
     val nearbySearch: NearbySearchUiState = NearbySearchUiState.Hidden,
     val nearbyDistanceFilter: NearbyDistanceFilter = NearbyDistanceFilter.WITHIN_5_KM,
