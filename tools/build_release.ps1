@@ -15,7 +15,7 @@ $signingEnvironment = @{
     CHIKABELL_KEY_PASSWORD = Convert-SigningPassword $savedSigning.KeyPassword
 }
 $previousEnvironment = @{}
-foreach ($name in $signingEnvironment.Keys) {
+foreach ($name in @($signingEnvironment.Keys) + @('ANDROID_HOME','ANDROID_SDK_ROOT')) {
     $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
 }
 try {
@@ -48,6 +48,10 @@ $sdkRoots = @(
     $env:ANDROID_HOME,
     $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA "Android\Sdk" })
 ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_ -PathType Container) } | Select-Object -Unique
+if (-not $sdkRoots) { throw 'Android SDK was not found. No distributable APK was created.' }
+# Make the standard entry work from a clean public checkout without copying local.properties.
+$env:ANDROID_HOME = @($sdkRoots)[0]
+$env:ANDROID_SDK_ROOT = @($sdkRoots)[0]
 $apksigner = $sdkRoots | ForEach-Object {
     Get-ChildItem -LiteralPath (Join-Path $_ "build-tools") -Filter "apksigner.bat" -File -Recurse -ErrorAction SilentlyContinue
 } | Sort-Object { [version]$_.Directory.Name } -Descending | Select-Object -First 1 -ExpandProperty FullName
