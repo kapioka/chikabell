@@ -1,12 +1,12 @@
 # ちかベル ロードマップ / ToDo
 
-確認日: 2026-10-14（Asia/Tokyo）。次回更新に向けて選定済みの作業を管理する。公開済みはv0.1.3、端末で検証中の候補は0.2.0-rc1/code6。候補の一般公開完了は未判定。
+確認日: 2026-10-14（Asia/Tokyo）。次回更新に向けて選定済みの作業を管理する。安定版はv0.1.3。検証用Prerelease v0.2.0-rc1/code6を公開し、端末版と公開APKの照合済み。実地ゲート未完了のため安定版昇格は未判定。
 
 詳細設計・Acceptance・Issueの状態はGitHubの個別Issueを正本とし、この文書は選定項目への入口とする。検索契約は[地点Import Contract](ai-import-contract.md)、通知の実地証拠は[近接通知検証](nearby_notification_validation.md)を参照する。
 
 ## 次回更新の選定済み作業
 
-- [ ] [#16 Android共有でChatGPTの地点検索結果を取り込む](https://github.com/kapioka/chikabell/issues/16) — 実装・自動検証済み。公開AI契約はPR #21でmainへ統合済み。端末でのChatGPT往復・取り込み確認が未完了。
+- [ ] [#16 Android共有でChatGPTの地点検索結果を取り込む](https://github.com/kapioka/chikabell/issues/16) — 実装・自動検証済み。公開AI契約はPR #21でmainへ統合済み。コピー→ChatGPT→JSON貼り付け→Previewキャンセルの往復をユーザーが確認。共有variant・権限拒否・背景通知は別ゲート。
   - アプリでエリア・探したいもの・条件・件数を入力し、「ChatGPTで探す」から依頼する。
   - 公開AI入口 `ai/AGENTS.md` のURL、ユーザー条件、仕様取得失敗時は推測生成しない指示を含む短い依頼文を自動生成する。
   - ChatGPT側が必要な最新Import Contract / Schema / Workflowを参照して地点を検索する。アプリ側の仕様全文取得・ETag・キャッシュは基本経路に含めない。
@@ -16,9 +16,11 @@
 
 Recipe Cooking Navigatorの[#7](https://github.com/kapioka/recipe-cooking-navigator/issues/7)と共通の操作方式で進める。共通化するのは「条件入力 → AI入口URL付き依頼 → ChatGPTで検索／生成 → 戻して検証・確認・保存」という体験であり、両アプリのデータ形式を一つに統合する決定ではない。
 
-- [ ] [#17 ChatGPT接続でアプリ内地点検索](https://github.com/kapioka/chikabell/issues/17) — 独立PoCの本人認証・モデル取得・完了本文受信をPixel 10aで確認し、本体へ統合。本体の本人接続、実検索・候補選択・承認保存をユーザーが確認。登録前の通知半径・メモ・タグ編集も自動検証済み。GPS検索、Web検索の実行完了、追加の接続QAは別の証拠ゲート。
+- [ ] [#17 ChatGPT接続でアプリ内地点検索](https://github.com/kapioka/chikabell/issues/17) — 独立PoCの本人認証・モデル取得・完了本文受信をPixel 10aで確認し、本体へ統合。本体の本人接続、実検索・候補選択・承認保存をユーザーが確認。登録前の通知半径・メモ・タグ編集も自動検証済み。GPS検索・位置確認・半径/メモ編集・Previewキャンセルをユーザーが確認。Web検索の個別完了状態、追加の接続QAと背景通知は別ゲート。
 - [ ] [#18 背景Geofence受信のANR対策](https://github.com/kapioka/chikabell/issues/18) — 修正版v0.1.3公開済み。隔離packageの受信worker・繰り返し終了2 testsを再確認。自然な背景Geofence、再起動、画面OFF等の実地証拠は継続中。
-- [ ] 依存更新PR 8件 — 一括の互換構成をローカルで検証済み（Gradle9.6.1 / AGP9.2.1 / KSP2.3.10 / compileSdk37等）。公開CIと統合後に旧PRを置換として整理する。
+- [x] 依存更新PR 8件 — 互換構成のテスト・公開CIが成功しPR #22をmainへ統合。旧PR #2/#3/#4/#5/#6/#7/#8/#14は置換理由を記してclosed。
+
+- 更新前の通知・画面OFF・12時間休止・再起動はすべて動作していたとユーザーが回答。v0.1.3と候補版のGeofence/通知/復元/DB schemaは同一、Room/WorkManager/Play services locationの版も同一で、既存機能の証拠として再利用する。取り込みtransactionとCore/Lifecycle等は変わったため、候補版の新規登録地点の背景通知は重点確認対象。候補版で全実地ゲートを再測定済みとは扱わない。
 
 ## 改善候補の管理
 
