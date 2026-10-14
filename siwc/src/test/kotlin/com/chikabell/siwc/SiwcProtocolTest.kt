@@ -35,6 +35,14 @@ class SiwcProtocolTest {
     @Test fun pkceMatchesRfc7636() {
         assertEquals("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", SiwcProtocol.challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"))
     }
+    @Test fun distinguishesCompletedWebSearchFromTextAndRejectsIncompleteOverallResponse() {
+        val text = "data: {\"type\":\"response.output_text.delta\",\"delta\":\"done\"}\n\n"
+        val web = "data: {\"type\":\"response.web_search_call.completed\"}\n\n"
+        val completed = "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n"
+        assertFalse(SiwcStream.readDetailed(StringReader(text + completed)).webSearchCompleted)
+        assertTrue(SiwcStream.readDetailed(StringReader(web + text + completed)).webSearchCompleted)
+        assertThrows(IllegalArgumentException::class.java) { SiwcStream.readDetailed(StringReader(web + text)) }
+    }
     @Test fun classifiesUsageFailureWithoutLeakingRemoteMessagesOrUnknownCodes() {
         val known = buildJsonObject { put("code", "subscription_sharing_usage_limit_exceeded"); put("message", "PRIVATE REMOTE TEXT") }
         assertEquals("subscription_sharing_usage_limit_exceeded", SiwcFailure.knownServerCode(known))

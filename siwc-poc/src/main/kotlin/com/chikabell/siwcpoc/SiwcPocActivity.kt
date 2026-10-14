@@ -48,30 +48,7 @@ class SiwcPocViewModel(application: Application) : AndroidViewModel(application)
             try { mutex.withLock { action() } }
             catch (cancelled: CancellationException) { mutable.update { it.copy(phase = "キャンセルしました") }; throw cancelled }
             catch (error: Exception) {
-                val reason = when {
-                    error is java.net.UnknownHostException -> "名前解決に失敗"
-                    error is java.net.SocketTimeoutException -> "通信時間切れ"
-                    error is javax.net.ssl.SSLException -> "TLS接続を検証できません"
-                    error is java.net.SocketException -> "ネットワーク接続が中断されました"
-                    error.message == "response_too_large" -> "応答が受信サイズ上限を超えました"
-                    error.message == "response_timeout" -> "一覧応答の受信時間が上限を超えました"
-                    error.message == "response_json_invalid" -> "一覧応答がJSON形式ではありません"
-                    error.message == "response_object_invalid" -> "一覧応答がJSONオブジェクトではありません"
-                    error.message == "model_catalog_invalid" -> "モデル一覧のmodels配列がありません"
-                    error.message == "model_catalog_empty" -> "表示可能なモデルがありません"
-                    error.message?.matches(Regex("http_[0-9]{3}")) == true -> "HTTP " + error.message!!.removePrefix("http_")
-                    error.message in setOf("plan_permission_missing", "reauthorize", "authorization_denied", "authorization_timeout", "inference_failed", "stream_interrupted", "empty_response", "account_mismatch") -> when (error.message) {
-                        "plan_permission_missing" -> "ChatGPTプラン利用の許可がありません"
-                        "reauthorize" -> "再接続が必要です"
-                        "authorization_denied" -> "認証が拒否されました"
-                        "authorization_timeout" -> "認証待ちの時間切れ"
-                        "inference_failed" -> "推論が失敗または未完了"
-                        "stream_interrupted" -> "完了イベント前に通信が終了"
-                        "empty_response" -> "完了応答の本文が空"
-                        else -> "アカウントが一致しません"
-                    }
-                    else -> "応答または保護保存を検証できません"
-                }
+                val reason = SiwcFailure.explanation(error)
                 mutable.update { it.copy(phase = it.phase + " / " + reason) }
             } finally { mutable.update { it.copy(busy = false) } }
         }
@@ -121,9 +98,10 @@ class SiwcPocViewModel(application: Application) : AndroidViewModel(application)
         val account = active()
         require(model in transport.models(account).map { it.slug }) { "model_unavailable" }
         mutable.update { it.copy(phase = "応答受信中") }
-        val result = transport.infer(account, model, text, "接続確認です。利用者の問いに短く答えてください。", webSearch)
+        val result = transport.inferDetailed(account, model, text, "接続確認です。利用者の問いに短く答えてください。", webSearch)
         kotlin.coroutines.coroutineContext.ensureActive()
-        mutable.update { it.copy(phase = "response.completed と本文受信成功" + (if (webSearch) "（Web検索指定）" else ""), output = result) }
+        mutable.update { it.copy(phase = "response.completed と本文受信成功" +
+            (if (webSearch) if (result.webSearchCompleted) "（Web検索実行確認）" else "（Web検索実行は未確認）" else ""), output = result.text) }
     }
     fun signOut() = run {
         val account = withContext(Dispatchers.IO) { storage.active() } ?: return@run

@@ -16,7 +16,7 @@
 
 Recipe Cooking Navigatorの[#7](https://github.com/kapioka/recipe-cooking-navigator/issues/7)と共通の操作方式で進める。共通化するのは「条件入力 → AI入口URL付き依頼 → ChatGPTで検索／生成 → 戻して検証・確認・保存」という体験であり、両アプリのデータ形式を一つに統合する決定ではない。
 
-- [ ] [#17 ChatGPT接続でアプリ内地点検索](https://github.com/kapioka/chikabell/issues/17) — 独立PoCの本人認証・モデル取得・完了本文受信をPixel 10aで確認し、本体へ統合。暗号化保存、現在地の明示送信、モデル選択、独立した住所候補確認、選択プレビューを実装。本体の本人接続はユーザーが確認、実検索・保存と追加の接続QAは未完了。
+- [ ] [#17 ChatGPT接続でアプリ内地点検索](https://github.com/kapioka/chikabell/issues/17) — 独立PoCの本人認証・モデル取得・完了本文受信をPixel 10aで確認し、本体へ統合。本体の本人接続、実検索・候補選択・承認保存をユーザーが確認。登録前の通知半径・メモ・タグ編集も自動検証済み。GPS検索、Web検索の実行完了、追加の接続QAは別の証拠ゲート。
 - [ ] [#18 背景Geofence受信のANR対策](https://github.com/kapioka/chikabell/issues/18) — 修正版v0.1.3公開済み。隔離packageの受信worker・繰り返し終了2 testsを再確認。自然な背景Geofence、再起動、画面OFF等の実地証拠は継続中。
 - [ ] 依存更新PR 8件 — 一括の互換構成をローカルで検証済み（Gradle9.6.1 / AGP9.2.1 / KSP2.3.10 / compileSdk37等）。公開CIと統合後に旧PRを置換として整理する。
 
@@ -28,4 +28,4 @@ Recipe Cooking Navigatorの[#7](https://github.com/kapioka/recipe-cooking-naviga
 
 - 次期作業の確認時は、このリストに加えてGitHubのopen Issueと対象Issueの最新本文を読む。PR一覧だけでは未着手の作業を把握できない。
 - 個別IssueのAcceptanceを満たすまで、このリストを完了にしない。実装・自動検証・端末での往復確認・公開を分けて記録する。
-- コード・自動検証、本人操作、実地QA、GitHub公開の状態を分ける。209 JVM tests、13 SIWC tests、5隔離device testsの成功と、正式署名候補の証明書一致・データ保持更新を確認。実地未測定や一般公開を成功として扱わない。
+- コード・自動検証、本人操作、実地QA、GitHub公開の状態を分ける。211 JVM tests、14 SIWC tests、5隔離device testsの成功と、正式署名候補の証明書一致・データ保持更新を確認。実地未測定や一般公開を成功として扱わない。

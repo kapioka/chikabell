@@ -8,6 +8,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 data class AiPlaceToReview(val record: LocationTransferRecord, val coordinates: List<AddressCoordinateCandidate>)
 data class AiPlaceVerificationResult(val candidates: List<AiPlaceToReview>, val excludedReasons: List<String>)
+data class AiPlaceEdits(val radiusMeters: String, val message: String, val tags: String)
 
 /** The AI's coordinates are never the authority. Independent Android address candidates require a user choice. */
 class AiPlaceVerifier(private val addressProvider: AddressCandidateProvider) {
@@ -40,13 +41,19 @@ class AiPlaceVerifier(private val addressProvider: AddressCandidateProvider) {
         return AiPlaceVerificationResult(accepted, excluded)
     }
 
-    fun selectedJson(candidates: List<AiPlaceToReview>, selectedCoordinates: Map<Int, Int>): String {
+    fun selectedJson(candidates: List<AiPlaceToReview>, selectedCoordinates: Map<Int, Int>, edits: Map<Int, AiPlaceEdits> = emptyMap()): String {
         require(selectedCoordinates.isNotEmpty()) { "登録する地点と位置候補を選んでください" }
         val selected = selectedCoordinates.entries.sortedBy { it.key }.map { (index, coordinateIndex) ->
             val candidate = candidates.getOrNull(index) ?: error("選択が不正です")
             val coordinate = candidate.coordinates.getOrNull(coordinateIndex) ?: error("位置選択が不正です")
-            candidate.record.copy(id = null, latitude = coordinate.latitude, longitude = coordinate.longitude)
+            val edited = edits[index]
+            candidate.record.copy(id = null, latitude = coordinate.latitude, longitude = coordinate.longitude,
+                radiusMeters = edited?.radiusMeters?.toIntOrNull() ?: if (edited == null) candidate.record.radiusMeters else error("通知半径を整数で入力してください"),
+                message = edited?.message ?: candidate.record.message,
+                tags = edited?.tags?.split('|')?.map(String::trim)?.filter(String::isNotEmpty) ?: candidate.record.tags)
         }
+        val preview = LocationImportPlanner.preview(selected, emptyList(), TransferFormat.JSON)
+        require(preview.errors.isEmpty()) { "通知半径・メモ・タグを確認してください。タグは最大5件・各30文字です" }
         return LocationTransferCodec.encodeImportJson(selected)
     }
 }

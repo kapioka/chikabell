@@ -56,8 +56,11 @@ fun AiConnectionPanel(state: AiSearchState, vm: AiSearchViewModel, model: String
 fun AiReviewPanel(state: AiSearchState, vm: AiSearchViewModel, open: (Intent) -> Unit, preview: (String) -> Unit) {
     val review = state.review ?: return
     var selected by remember(review) { mutableStateOf<Map<Int, Int>>(emptyMap()) }
+    var edits by remember(review) { mutableStateOf<Map<Int, AiPlaceEdits>>(emptyMap()) }
+    var validationError by remember(review) { mutableStateOf<String?>(null) }
     Text("位置を確認して選択", style = MaterialTheme.typography.titleMedium)
     Text("検索条件: ${state.searchedFor}")
+    state.searchEvidence?.let { Text(it) }
     Text("AIの座標を採用せず、住所検索で取得した位置を表示しています。出典と地図で同じ施設か確認してください。")
     review.excludedReasons.forEach { Text(it, color = MaterialTheme.colorScheme.error) }
     if (review.candidates.isEmpty()) Text("位置を確認できる候補がありません。条件を変えるか、Googleマップから共有して登録してください。")
@@ -65,6 +68,10 @@ fun AiReviewPanel(state: AiSearchState, vm: AiSearchViewModel, open: (Intent) ->
         Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(place.record.name, style = MaterialTheme.typography.titleSmall)
             Text(place.record.message)
+            val edited = edits[index] ?: AiPlaceEdits(place.record.radiusMeters.toString(), place.record.message, place.record.tags.joinToString("|"))
+            OutlinedTextField(edited.radiusMeters, { edits = edits + (index to edited.copy(radiusMeters = it.take(6))) }, label = { Text("通知半径（100〜5,000m）") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(edited.message, { edits = edits + (index to edited.copy(message = it.take(501))) }, label = { Text("通知メモ（500字以内）") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(edited.tags, { edits = edits + (index to edited.copy(tags = it.take(1000))) }, label = { Text("タグ（|で区切る・最大5件）") }, modifier = Modifier.fillMaxWidth())
             place.record.sourceUrl?.let { source -> TextButton(onClick = { open(Intent(Intent.ACTION_VIEW, Uri.parse(source))) }) { Text("実在性と座標の出典を確認") } }
             place.coordinates.forEachIndexed { coordinateIndex, coordinate ->
                 Row {
@@ -79,6 +86,11 @@ fun AiReviewPanel(state: AiSearchState, vm: AiSearchViewModel, open: (Intent) ->
             if (index in selected) TextButton(onClick = { selected = selected - index }) { Text("この候補を選択から外す") }
         } }
     }
-    Button(enabled = selected.isNotEmpty() && !state.busy, onClick = { preview(vm.selectedJson(selected)) }) { Text("選択した${selected.size}件の取り込みを確認") }
+    validationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    Button(enabled = selected.isNotEmpty() && !state.busy, onClick = {
+        try { preview(vm.selectedJson(selected, edits)) }
+        catch (_: IllegalArgumentException) { validationError = "通知半径・メモ・タグを確認してください。タグは最大5件・各30文字です" }
+        catch (_: IllegalStateException) { validationError = "通知半径を整数で入力し、候補と位置を選択してください" }
+    }) { Text("選択した${selected.size}件の取り込みを確認") }
     TextButton(onClick = vm::clearReview) { Text("候補を破棄") }
 }

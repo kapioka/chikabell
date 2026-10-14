@@ -71,7 +71,9 @@ class SiwcTransport {
         require(account.canInfer) { "plan_permission_missing" }
         return SiwcProtocol.models(objectRequest(SiwcProtocol.RESOURCE + "/models", account.accessToken, maxBytes = 2_000_000))
     }
-    suspend fun infer(account: ChatGptAccount, model: String, input: String, instructions: String, webSearch: Boolean = false): String {
+    suspend fun infer(account: ChatGptAccount, model: String, input: String, instructions: String, webSearch: Boolean = false): String =
+        inferDetailed(account, model, input, instructions, webSearch).text
+    suspend fun inferDetailed(account: ChatGptAccount, model: String, input: String, instructions: String, webSearch: Boolean = false): SiwcInferenceResult {
         require(account.canInfer) { "plan_permission_missing" }
         require(model.matches(Regex("[A-Za-z0-9._-]{1,120}")) && input.length <= 100_000 && instructions.length <= 100_000)
         val payload = buildJsonObject {
@@ -86,7 +88,7 @@ class SiwcTransport {
             val type = connection.contentType.orEmpty().lowercase()
             require(type.isBlank() || type.startsWith("text/event-stream")) { "stream_invalid" }
             connection.inputStream.reader(Charsets.UTF_8).use {
-                SiwcStream.read(it) { System.currentTimeMillis() - started > 180_000L || activeJob?.isCancelled == true || Thread.currentThread().isInterrupted }
+                SiwcStream.readDetailed(it) { System.currentTimeMillis() - started > 180_000L || activeJob?.isCancelled == true || Thread.currentThread().isInterrupted }
             }
         }
     }
@@ -119,12 +121,14 @@ class SiwcTransport {
             }
             val status = connection.responseCode
             if (status !in 200..299) {
+                val errorStarted = System.currentTimeMillis()
                 val known = try {
                     val text = connection.errorStream?.use { input ->
                         val buffer = ByteArray(4096)
                         val output = java.io.ByteArrayOutputStream()
                         while (output.size() <= 64_000) {
                             ensureActive()
+                            require(System.currentTimeMillis() - errorStarted < 60_000) { "response_timeout" }
                             val count = input.read(buffer); if (count < 0) break
                             if (output.size() + count > 64_000) return@use null
                             output.write(buffer, 0, count)

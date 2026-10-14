@@ -19,6 +19,7 @@ data class AiSearchState(
     val models: List<ChatGptModel> = emptyList(),
     val review: AiPlaceVerificationResult? = null,
     val searchedFor: String = "",
+    val searchEvidence: String? = null,
 )
 
 class AiSearchViewModel(application: Application) : AndroidViewModel(application) {
@@ -46,7 +47,7 @@ class AiSearchViewModel(application: Application) : AndroidViewModel(application
 
     private fun run(action: suspend () -> Unit) {
         if (state.value.busy) return
-        mutable.update { it.copy(busy = true, review = null, searchedFor = "") }
+        mutable.update { it.copy(busy = true, review = null, searchedFor = "", searchEvidence = null) }
         operation = viewModelScope.launch {
             try { mutex.withLock { action() } }
             catch (cancelled: CancellationException) { mutable.update { it.copy(phase = "キャンセルしました", review = null) }; throw cancelled }
@@ -122,16 +123,18 @@ class AiSearchViewModel(application: Application) : AndroidViewModel(application
                 .joinToString("\n") { path -> assets.open(path).bufferedReader().use { it.readText() } }
         }
         mutable.update { it.copy(phase = "ChatGPTで地点検索中") }
-        val response = transport.infer(account, model, request.inferenceInput(sentAt), instructions, webSearch)
-        require(response.length <= AiSearchActivity.MAX_AI_TEXT_CHARS) { "response_too_large" }
+        val response = transport.inferDetailed(account, model, request.inferenceInput(sentAt), instructions, webSearch)
+        require(response.text.length <= AiSearchActivity.MAX_AI_TEXT_CHARS) { "response_too_large" }
         kotlin.coroutines.coroutineContext.ensureActive()
         mutable.update { it.copy(phase = "完了応答受領 / 住所から位置を確認中") }
-        val review = verifier.verify(response, request, sentAt)
+        val review = verifier.verify(response.text, request, sentAt)
         kotlin.coroutines.coroutineContext.ensureActive()
-        mutable.update { it.copy(review = review, phase = "候補と位置を確認してください。まだ保存していません", searchedFor = request.target + " / " + if (request.areaMode == SearchAreaMode.AREA) request.area else "送信した現在地から${request.distanceKm}km") }
+        mutable.update { it.copy(review = review, phase = "候補と位置を確認してください。まだ保存していません",
+            searchEvidence = if (response.webSearchCompleted) "Web検索の実行完了を確認しました。出典と位置も確認してください。" else "Web検索の実行完了は確認できません。出典を個別に確認してください。",
+            searchedFor = request.target + " / " + if (request.areaMode == SearchAreaMode.AREA) request.area else "送信した現在地から${request.distanceKm}km") }
     }
 
-    fun selectedJson(selected: Map<Int, Int>): String = verifier.selectedJson(state.value.review?.candidates.orEmpty(), selected)
+    fun selectedJson(selected: Map<Int, Int>, edits: Map<Int, AiPlaceEdits>): String = verifier.selectedJson(state.value.review?.candidates.orEmpty(), selected, edits)
     fun clearReview() { if (!state.value.busy) mutable.update { it.copy(review = null, searchedFor = "") } }
     fun cancel() { operation?.cancel() }
     fun disconnect() = run {

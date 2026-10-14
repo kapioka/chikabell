@@ -4,15 +4,19 @@ import java.io.BufferedReader
 import java.io.Reader
 import kotlinx.serialization.json.*
 
+data class SiwcInferenceResult(val text: String, val webSearchCompleted: Boolean)
+
 object SiwcStream {
     const val MAX_CHARS = 2_000_000
-    fun read(reader: Reader, cancelled: () -> Boolean = { false }): String {
+    fun read(reader: Reader, cancelled: () -> Boolean = { false }): String = readDetailed(reader, cancelled).text
+    fun readDetailed(reader: Reader, cancelled: () -> Boolean = { false }): SiwcInferenceResult {
         val buffered = if (reader is BufferedReader) reader else reader.buffered()
         val parts = linkedMapOf<String, StringBuilder>()
         val done = linkedMapOf<String, String>()
         val event = StringBuilder()
         var total = 0
         var completed = false
+        var webSearchCompleted = false
         fun dispatch() {
             if (event.isEmpty()) return
             val data = event.toString().trimEnd()
@@ -22,6 +26,7 @@ object SiwcStream {
             val type = value["type"]?.jsonPrimitive?.content
             val key = (value["output_index"]?.jsonPrimitive?.content ?: "0") + ":" + (value["content_index"]?.jsonPrimitive?.content ?: "0")
             when (type) {
+                "response.web_search_call.completed" -> webSearchCompleted = true
                 "response.output_text.delta" -> {
                     require(parts.size < 64 || key in parts) { "stream_invalid" }
                     parts.getOrPut(key) { StringBuilder() }.append(value["delta"]?.jsonPrimitive?.content.orEmpty())
@@ -33,6 +38,10 @@ object SiwcStream {
                 }
                 "response.completed" -> {
                     val response = value["response"]?.jsonObject
+                    if (response?.get("output")?.jsonArray.orEmpty().any {
+                        val item = it as? JsonObject
+                        item?.get("type")?.jsonPrimitive?.content == "web_search_call" && item["status"]?.jsonPrimitive?.content == "completed"
+                    }) webSearchCompleted = true
                     response?.get("status")?.jsonPrimitive?.content?.let { require(it == "completed") { "inference_failed" } }
                     val finalText = response?.get("output")?.jsonArray.orEmpty().flatMap {
                         it.jsonObject["content"]?.jsonArray.orEmpty()
@@ -73,6 +82,6 @@ object SiwcStream {
         val keys = (parts.keys + done.keys).distinct()
         val text = keys.joinToString("\n") { done[it] ?: parts[it].toString() }
         require(text.isNotBlank() && text.length <= MAX_CHARS) { "empty_response" }
-        return text
+        return SiwcInferenceResult(text, webSearchCompleted)
     }
 }
