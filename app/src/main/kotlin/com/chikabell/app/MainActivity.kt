@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
@@ -67,6 +70,7 @@ private data class SharedIntentEnvelope(
 )
 
 class MainActivity : ComponentActivity() {
+    private var homeRequest by mutableIntStateOf(0)
     private val transfers = Channel<Pair<String, TransferFormat>>(capacity = 8)
     private val sharedIntentEnvelopes = Channel<SharedIntentEnvelope>(capacity = 64)
     private val sharedPlaceDeliveries = Channel<SharedPlaceDelivery>(capacity = 64)
@@ -76,6 +80,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (intent.action == com.chikabell.app.ai.AiSearchActivity.ACTION_SHOW_LOCATIONS) homeRequest++
         lastHandledLaunchFingerprint = savedInstanceState?.getString(STATE_HANDLED_LAUNCH_FINGERPRINT)
         WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = true
@@ -83,7 +88,7 @@ class MainActivity : ComponentActivity() {
         }
         GeofenceRestoreScheduler.enqueue(this, RestoreTrigger.APP_START)
         setContent {
-            ChikaBellApp(sharedPlaceDeliveries.receiveAsFlow(), transfers.receiveAsFlow())
+            ChikaBellApp(sharedPlaceDeliveries.receiveAsFlow(), transfers.receiveAsFlow(), homeRequest)
         }
         startSharedIntentActor()
         acceptSharedIntent(intent, acceptRepeatedDelivery = false)
@@ -92,6 +97,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (intent.action == com.chikabell.app.ai.AiSearchActivity.ACTION_SHOW_LOCATIONS) homeRequest++
         acceptSharedIntent(intent, acceptRepeatedDelivery = true)
     }
 
@@ -243,7 +249,7 @@ private fun sharedIntentFingerprint(intent: Intent): String {
 }
 
 @Composable
-internal fun ChikaBellApp(sharedPlaceEvents: Flow<SharedPlaceDelivery> = emptyFlow(), transferEvents: Flow<Pair<String, TransferFormat>> = emptyFlow()) {
+internal fun ChikaBellApp(sharedPlaceEvents: Flow<SharedPlaceDelivery> = emptyFlow(), transferEvents: Flow<Pair<String, TransferFormat>> = emptyFlow(), homeRequest: Int = 0) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val app = context.applicationContext as ChikaBellApplication
@@ -345,6 +351,7 @@ internal fun ChikaBellApp(sharedPlaceEvents: Flow<SharedPlaceDelivery> = emptyFl
             color = MaterialTheme.colorScheme.background,
         ) {
             LocationsScreen(
+                homeRequest = homeRequest,
                 uiState = uiState,
                 onFormChange = viewModel::updateForm,
                 onApplyPreset = viewModel::applyPreset,

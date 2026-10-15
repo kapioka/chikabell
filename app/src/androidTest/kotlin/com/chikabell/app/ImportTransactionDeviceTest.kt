@@ -8,6 +8,10 @@ import com.chikabell.app.data.repository.LocationRepositoryImpl
 import com.chikabell.app.domain.model.LocationDraft
 import com.chikabell.app.domain.model.SourceType
 import com.chikabell.app.importexport.LocationImportCandidate
+import com.chikabell.app.importexport.LocationImportCommitter
+import com.chikabell.app.importexport.ImportReviewChanged
+import com.chikabell.app.importexport.TransferFormat
+import com.chikabell.app.geofence.ReconcileResult
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.*
@@ -53,5 +57,42 @@ class ImportTransactionDeviceTest {
         try { repository.addImportedLocations(listOf(LocationImportCandidate(id, draft("replacement")))) } catch (_: Exception) { failed = true }
         Assert.assertTrue(failed)
         Assert.assertEquals("existing", repository.observeLocations().first().single().name)
+    }
+
+    @Test fun transactionRechecksDuplicatesWithoutWritingAnySelectedCandidate() = runBlocking {
+        repository.addLocation(draft("existing"))
+        try {
+            repository.addImportedLocations(listOf(LocationImportCandidate(null, draft("new")), LocationImportCandidate(null, draft("existing"))))
+            Assert.fail("Stale review must not be committed")
+        } catch (changed: ImportReviewChanged) { Assert.assertEquals(1, changed.preview.duplicateCount) }
+        Assert.assertEquals(listOf("existing"), repository.observeLocations().first().map { it.name })
+    }
+
+    @Test fun transactionRechecksEnabledLimit() = runBlocking {
+        repeat(100) { repository.addLocation(draft("existing$it").copy(enabled = true)) }
+        try {
+            repository.addImportedLocations(listOf(LocationImportCandidate(null, draft("new").copy(enabled = true))))
+            Assert.fail("Enabled limit must block the atomic save")
+        } catch (changed: ImportReviewChanged) { Assert.assertTrue(changed.preview.errors.any { it.contains("100") }) }
+        Assert.assertEquals(100, repository.observeLocations().first().size)
+    }
+
+    @Test fun sharedCommitterRetainsSuccessfulSaveWhenMonitoringThrows() = runBlocking {
+        val committer = LocationImportCommitter(repository) { error("simulated monitoring failure") }
+        val result = committer.commit(listOf(LocationImportCandidate(null, draft("new"))), TransferFormat.JSON)
+        Assert.assertTrue(result.startsWith("1件を保存しました"))
+        Assert.assertEquals(listOf("new"), repository.observeLocations().first().map { it.name })
+    }
+
+    @Test fun sharedCommitterRejectsStaleReviewBeforeMonitoring() = runBlocking {
+        repository.addLocation(draft("existing"))
+        var reconciled = false
+        val committer = LocationImportCommitter(repository) { reconciled = true; ReconcileResult.Blocked("test") }
+        try {
+            committer.commit(listOf(LocationImportCandidate(null, draft("existing"))), TransferFormat.JSON)
+            Assert.fail("Duplicate review must be returned")
+        } catch (changed: ImportReviewChanged) { Assert.assertEquals(1, changed.preview.duplicateCount) }
+        Assert.assertFalse(reconciled)
+        Assert.assertEquals(1, repository.observeLocations().first().size)
     }
 }

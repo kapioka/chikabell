@@ -8,7 +8,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 data class AiPlaceToReview(val record: LocationTransferRecord, val coordinates: List<AddressCoordinateCandidate>)
 data class AiPlaceVerificationResult(val candidates: List<AiPlaceToReview>, val excludedReasons: List<String>)
-data class AiPlaceEdits(val radiusMeters: String, val message: String, val tags: String)
+data class AiPlaceEdits(val radiusMeters: String, val message: String, val tags: String,
+    val loiteringDelaySeconds: String? = null, val cooldownMinutes: String? = null, val enabled: Boolean? = null)
 
 /** The AI's coordinates are never the authority. Independent Android address candidates require a user choice. */
 class AiPlaceVerifier(private val addressProvider: AddressCandidateProvider) {
@@ -47,9 +48,12 @@ class AiPlaceVerifier(private val addressProvider: AddressCandidateProvider) {
             val candidate = candidates.getOrNull(index) ?: error("選択が不正です")
             val coordinate = candidate.coordinates.getOrNull(coordinateIndex) ?: error("位置選択が不正です")
             val edited = edits[index]
-            candidate.record.copy(id = null, latitude = coordinate.latitude, longitude = coordinate.longitude,
+            candidate.record.copy(latitude = coordinate.latitude, longitude = coordinate.longitude,
                 radiusMeters = edited?.radiusMeters?.toIntOrNull() ?: if (edited == null) candidate.record.radiusMeters else error("通知半径を整数で入力してください"),
                 message = edited?.message ?: candidate.record.message,
+                loiteringDelaySeconds = edited?.loiteringDelaySeconds?.let { it.toIntOrNull() ?: error("滞在時間を整数で入力してください") } ?: candidate.record.loiteringDelaySeconds,
+                cooldownMinutes = edited?.cooldownMinutes?.let { it.toLongOrNull() ?: error("再通知までの時間を整数で入力してください") } ?: candidate.record.cooldownMinutes,
+                enabled = edited?.enabled ?: candidate.record.enabled,
                 tags = edited?.tags?.split('|')?.map(String::trim)?.filter(String::isNotEmpty) ?: candidate.record.tags)
         }
         val preview = LocationImportPlanner.preview(selected, emptyList(), TransferFormat.JSON)
