@@ -16,6 +16,10 @@ import com.chikabell.app.domain.model.TransitionType
 import com.chikabell.app.domain.repository.LocationRepository
 import java.util.UUID
 import com.chikabell.app.importexport.LocationImportCandidate
+import com.chikabell.app.importexport.LocationImportPlanner
+import com.chikabell.app.importexport.ImportReviewChanged
+import com.chikabell.app.importexport.TransferFormat
+import com.chikabell.app.importexport.toTransferRecord
 import com.chikabell.app.geofence.NearbyVerificationPolicy
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -77,6 +81,9 @@ class LocationRepositoryImpl(
     override suspend fun addImportedLocations(candidates: List<LocationImportCandidate>) {
         if (candidates.isEmpty()) return
         database.withTransaction {
+        val format = if (candidates.first().draft.sourceType == SourceType.CSV_IMPORT) TransferFormat.CSV else TransferFormat.JSON
+        val checked = LocationImportPlanner.preview(candidates.map { it.toTransferRecord() }, locationDao.getAllWithTagsOnce().map(LocationWithTags::toDomain), format)
+        if (!checked.canApply || checked.candidates != candidates) throw ImportReviewChanged(checked)
         val now = System.currentTimeMillis()
         var sortOrder = locationDao.nextSortOrder()
         val imported = candidates.map { candidate ->

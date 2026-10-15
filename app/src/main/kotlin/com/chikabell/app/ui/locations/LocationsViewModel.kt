@@ -604,39 +604,20 @@ class LocationsViewModel(
         if (selected.isEmpty()) return
         _uiState.update { it.copy(isImporting = true) }
         viewModelScope.launch {
-            val current = repository.observeLocations().first()
-            val records = selected.map { candidate ->
-                val draft = candidate.draft
-                com.chikabell.app.importexport.LocationTransferRecord(candidate.originalId, draft.name, draft.message,
-                    draft.latitude, draft.longitude, draft.radiusMeters, draft.loiteringDelaySeconds, draft.cooldownMinutes,
-                    draft.enabled, draft.sourceUrl, draft.tags)
-            }
-            val rechecked = LocationImportPlanner.preview(records, current, preview.format)
-            if (!rechecked.canApply || rechecked.candidates != selected) {
-                _uiState.update { it.copy(isImporting = false, importPreview = rechecked, importSelectedIndices = rechecked.candidates.indices.toSet(),
+            try {
+                val message = com.chikabell.app.importexport.LocationImportCommitter(repository) {
+                    reconcileGeofencesUseCase.execute()
+                }.commit(selected, preview.format)
+                _uiState.update { it.copy(importPreview = null, importSelectedIndices = emptySet(), registrationMessage = message) }
+            } catch (changed: com.chikabell.app.importexport.ImportReviewChanged) {
+                _uiState.update { it.copy(importPreview = changed.preview, importSelectedIndices = changed.preview.candidates.indices.toSet(),
                     registrationMessage = "地点一覧が変わったため確認を更新しました。件数・重複・エラーを再確認してください") }
-                return@launch
-            }
-            runCatching {
-                repository.addImportedLocations(selected)
-                reconcileGeofencesUseCase.execute()
-            }.onSuccess { reconcileResult ->
-                val message = when (reconcileResult) {
-                    is ReconcileResult.Registered -> "${selected.size}件を追加し、${reconcileResult.count}件の監視設定を更新しました"
-                    is ReconcileResult.Blocked -> "${selected.size}件を追加しました。監視登録できません: ${reconcileResult.reason}"
-                    is ReconcileResult.Failed -> "${selected.size}件を追加しました。監視登録に失敗しました: ${reconcileResult.message}"
-                }
-                _uiState.update {
-                    it.copy(
-                        importPreview = null,
-                        isImporting = false,
-                        registrationMessage = message,
-                    )
-                }
-            }.onFailure { error ->
-                _uiState.update {
-                    it.copy(isImporting = false, registrationMessage = "インポートに失敗しました: ${error.message ?: "不明なエラー"}")
-                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _uiState.update { it.copy(registrationMessage = "インポートに失敗しました。登録内容を確認してもう一度お試しください") }
+            } finally {
+                _uiState.update { it.copy(isImporting = false) }
             }
         }
     }

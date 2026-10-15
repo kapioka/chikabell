@@ -22,6 +22,10 @@ interface LocationDao {
     @Query("SELECT * FROM locations ORDER BY sortOrder ASC, createdAt ASC")
     fun observeAllWithTags(): Flow<List<LocationWithTags>>
 
+    @Transaction
+    @Query("SELECT * FROM locations ORDER BY sortOrder ASC, createdAt ASC")
+    suspend fun getAllWithTagsOnce(): List<LocationWithTags>
+
     @Query("SELECT * FROM locations WHERE enabled = 1 ORDER BY sortOrder ASC, createdAt ASC")
     suspend fun getEnabledOnce(): List<LocationEntity>
 

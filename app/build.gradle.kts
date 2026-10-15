@@ -25,8 +25,8 @@ android {
         applicationId = "com.chikabell.app"
         minSdk = 29
         targetSdk = 36
-        versionCode = 6
-        versionName = "0.2.0-rc1"
+        versionCode = 8
+        versionName = "0.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -117,6 +117,8 @@ dependencies {
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.room.testing)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 }
 
 val allJvmUnitTests = tasks.register<JavaExec>("allJvmUnitTests") {
@@ -153,6 +155,7 @@ val allJvmUnitTests = tasks.register<JavaExec>("allJvmUnitTests") {
         "com.chikabell.app.PermissionSettingsPresentationTest",
         "com.chikabell.app.AiSearchContractTest",
         "com.chikabell.app.AiPlaceVerifierTest",
+        "com.chikabell.app.AiSearchExperienceTest",
         "com.chikabell.app.PublicImportContractTest",
         "com.chikabell.app.SendTestNotificationUseCaseTest",
         "com.chikabell.app.LocationRegistrationPresentationTest",

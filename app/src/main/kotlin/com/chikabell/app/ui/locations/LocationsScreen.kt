@@ -5,6 +5,7 @@ package com.chikabell.app.ui.locations
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -64,6 +65,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -187,6 +189,7 @@ internal fun retainExistingLocationDetailsExpansion(
 
 @Composable
 fun LocationsScreen(
+    homeRequest: Int = 0,
     uiState: LocationsUiState,
     onFormChange: (LocationFormState) -> Unit,
     onApplyPreset: (String) -> Unit,
@@ -231,6 +234,7 @@ fun LocationsScreen(
     modifier: Modifier = Modifier,
 ) {
     var screenName by rememberSaveable { mutableStateOf(AppScreen.LOCATIONS.name) }
+    LaunchedEffect(homeRequest) { if (homeRequest > 0) screenName = AppScreen.LOCATIONS.name }
     val screen = AppScreen.valueOf(screenName)
     LaunchedEffect(uiState.importPreview) {
         if (uiState.importPreview != null) screenName = AppScreen.DATA.name
@@ -532,6 +536,8 @@ private fun LocationsHomeScreen(
     var selectedIds by remember { mutableStateOf(setOf<String>()) }
     var expandedLocationIds by remember { mutableStateOf(setOf<String>()) }
     var showBatchDeleteDialog by rememberSaveable { mutableStateOf(false) }
+    var showAddMethods by rememberSaveable { mutableStateOf(false) }
+    val addContext = androidx.compose.ui.platform.LocalContext.current
     val distancesByLocationId = remember(uiState.nearbySearch) {
         (uiState.nearbySearch as? NearbySearchUiState.Results)
             ?.result
@@ -603,16 +609,25 @@ private fun LocationsHomeScreen(
             dismissButton = { TextButton(onClick = { showBatchDeleteDialog = false }) { Text("キャンセル") } },
         )
     }
+    if (showAddMethods) AddLocationMethodsSheet(
+        onDismiss = { showAddMethods = false },
+        onAi = {
+            showAddMethods = false
+            addContext.startActivity(android.content.Intent(addContext, com.chikabell.app.ai.AiSearchActivity::class.java))
+        },
+        onManual = {
+            showAddMethods = false
+            onFormChange(LocationFormState())
+            onNavigate(AppScreen.LOCATION_EDIT)
+        },
+    )
     Scaffold(
         modifier = modifier,
         bottomBar = { BottomNavigation(AppScreen.LOCATIONS, onNavigate) },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 modifier = Modifier.semantics { contentDescription = "地点を追加" },
-                onClick = {
-                    onFormChange(LocationFormState())
-                    onNavigate(AppScreen.LOCATION_EDIT)
-                },
+                onClick = { showAddMethods = true },
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
                 text = { Text("地点を追加") },
             )
@@ -658,10 +673,6 @@ private fun LocationsHomeScreen(
                 }
             }
             MonitoringSummary(uiState = uiState, onOpenSettings = { onNavigate(AppScreen.SETTINGS) })
-            val aiContext = androidx.compose.ui.platform.LocalContext.current
-            OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = {
-                aiContext.startActivity(android.content.Intent(aiContext, com.chikabell.app.ai.AiSearchActivity::class.java))
-            }) { Text("AIで場所を探す / JSONを貼り付け") }
             uiState.registrationMessage?.let { message -> FeedbackText(message) }
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -763,6 +774,30 @@ private fun LocationsHomeScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+internal fun AddLocationMethodsSheet(onDismiss: () -> Unit, onAi: () -> Unit, onManual: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surface) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text("地点の追加方法", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            AddLocationMethod("AIで探す", "探したい場所や条件から候補を見つけます", onAi)
+            AddLocationMethod("自分で入力する", "場所の名前・住所・位置を入力して追加します", onManual)
+        }
+    }
+}
+
+@Composable
+private fun AddLocationMethod(title: String, description: String, onClick: () -> Unit) {
+    OutlinedCard(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Text(description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -2418,122 +2453,6 @@ private fun SettingsAction(label: String, onClick: () -> Unit) {
             Text(label, style = MaterialTheme.typography.titleMedium)
             Text("›", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
         }
-    }
-}
-
-@Composable
-private fun DataManagementScreen(
-    uiState: LocationsUiState,
-    onBack: () -> Unit,
-    onExportJson: () -> Unit,
-    onExportCsv: () -> Unit,
-    onImportJson: () -> Unit,
-    onImportCsv: () -> Unit,
-    onConfirmImport: () -> Unit,
-    onToggleImportCandidate: (Int) -> Unit,
-    onCancelImport: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Scaffold(
-        modifier = modifier,
-        topBar = {
-            TopAppBar(
-                title = { Text("データ管理") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る") } },
-            )
-        },
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(20.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
-        ) {
-            item {
-                DataSection(
-                    title = "バックアップ・復元",
-                    description = "JSONは機種移行・復元用です。",
-                    exportLabel = "JSONを書き出す",
-                    importLabel = "JSONを読み込む",
-                    onExport = onExportJson,
-                    onImport = onImportJson,
-                )
-            }
-            item {
-                DataSection(
-                    title = "CSV一括入力",
-                    description = "PCで編集した地点を追加します。",
-                    exportLabel = "CSVを書き出す",
-                    importLabel = "CSVを読み込む",
-                    onExport = onExportCsv,
-                    onImport = onImportCsv,
-                )
-            }
-            item {
-                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF3EF))) {
-                    Text(
-                        "ファイルには緯度・経度やメモなど、位置情報や個人の記録が含まれます。安全に管理してください。",
-                        modifier = Modifier.padding(16.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
-            uiState.registrationMessage?.let { item { FeedbackText(it) } }
-            uiState.importPreview?.let { preview ->
-                item {
-                    SettingsSection("インポートプレビュー") {
-                        Text("読込 ${preview.totalCount}件 / 新規 ${preview.candidates.size}件 / 重複 ${preview.duplicateCount}件")
-                        preview.errors.forEach { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                        Text("既存地点の削除・上書きは行いません。", style = MaterialTheme.typography.bodySmall)
-                        Text("登録する候補の名前・座標・根拠を確認し、不要な候補の選択を外してください。", style = MaterialTheme.typography.bodySmall)
-                        preview.candidates.forEachIndexed { index, candidate ->
-                            val draft = candidate.draft
-                            val reviewContext = androidx.compose.ui.platform.LocalContext.current
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Checkbox(checked = index in uiState.importSelectedIndices, enabled = !uiState.isImporting, onCheckedChange = { onToggleImportCandidate(index) })
-                                Column(Modifier.weight(1f)) {
-                                    Text(draft.name, fontWeight = FontWeight.SemiBold)
-                                    Text("緯度 ${draft.latitude} / 経度 ${draft.longitude}", style = MaterialTheme.typography.bodySmall)
-                                    Text("通知半径 ${draft.radiusMeters}m", style = MaterialTheme.typography.bodySmall)
-                                    if (draft.message.isNotBlank()) Text(draft.message, style = MaterialTheme.typography.bodySmall)
-                                    draft.sourceUrl?.let { url ->
-                                        TextButton(enabled = com.chikabell.app.ai.AiImportText.safeSource(url), onClick = {
-                                            runCatching { reviewContext.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
-                                        }) { Text("根拠URLを開く") }
-                                    }
-                                    TextButton(onClick = {
-                                        val url = "https://www.google.com/maps/search/?api=1&query=${draft.latitude},${draft.longitude}"
-                                        runCatching { reviewContext.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
-                                    }) { Text("地図で位置を確認") }
-                                }
-                            }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(enabled = preview.canApply && uiState.importSelectedIndices.isNotEmpty() && !uiState.isImporting, onClick = onConfirmImport) {
-                                Text(if (uiState.isImporting) "追加中" else "${uiState.importSelectedIndices.size}件を追加")
-                            }
-                            OutlinedButton(enabled = !uiState.isImporting, onClick = onCancelImport) { Text("キャンセル") }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DataSection(
-    title: String,
-    description: String,
-    exportLabel: String,
-    importLabel: String,
-    onExport: () -> Unit,
-    onImport: () -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-        Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = onExport) { Text(exportLabel) }
-        OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = onImport) { Text(importLabel) }
     }
 }
 
