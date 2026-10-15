@@ -25,8 +25,8 @@ android {
         applicationId = "com.chikabell.app"
         minSdk = 29
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.2.0-rc2"
+        versionCode = 8
+        versionName = "0.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
