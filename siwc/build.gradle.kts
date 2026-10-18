@@ -8,7 +8,7 @@ android {
 }
 dependencies {
     implementation(libs.kotlinx.serialization.json)
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     testImplementation(libs.junit)
 }
 val protocolTests = tasks.register<JavaExec>("protocolTests") {
