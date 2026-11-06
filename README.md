@@ -18,11 +18,18 @@
 
 ## 現在の状態
 
-- 公開版: [`0.2.0`](https://github.com/kapioka/chikabell/releases/tag/v0.2.0)。実機確認の範囲と制限は以下を参照してください。
+- 公開版: [`0.2.1`](https://github.com/kapioka/chikabell/releases/tag/v0.2.1)。実機確認の範囲と制限は以下を参照してください。
 - 対応OS: Android 10（API 29）以上
 - 実機検証済み: Pixel 10a / Android 17のみ
 - 配布方針: ソースコードと署名済みAPKをGitHubで公開済み。Play Store公開予定なし
 - サポート方針: 無保証・自己責任。Issue、Pull Request、個別サポートは受け付けない
+
+## v0.2.1の変更点
+
+- 登録地点一覧・データ管理・AI検索から同じJSON・CSV取り込み画面を開けます。
+- データ管理で地点データの追加と書き出しを分け、読み込めない場合は理由と次の操作を表示します。
+
+更新内容と確認項目は[リリース記録](docs/releases/v0.2.1.md)を参照してください。
 
 ## v0.2.0の変更点
 

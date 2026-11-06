@@ -114,12 +114,14 @@ object LocationTransferCodec {
             require(rows.isNotEmpty()) { "CSVが空です" }
             require(rows.size - 1 <= MAX_ROWS) { "地点数が${MAX_ROWS}件の上限を超えています" }
             val headers = rows.first().mapIndexed { index, value -> value.trim().let { require(it.isNotEmpty()) { "列${index + 1}の名前が空です" }; it } }
-            require(headers.toSet().containsAll(requiredCsvHeaders)) { "CSVの必須列が不足しています" }
+            val missing = requiredCsvHeaders - headers.toSet()
+            require(missing.isEmpty()) { "CSVの必須列が不足しています（${missing.joinToString()}）" }
             require(headers.size == headers.toSet().size) { "CSVに重複した列名があります" }
             val known = csvHeaders.toSet()
             require(headers.all { it in known }) { "未対応のCSV列があります" }
             val index = headers.withIndex().associate { it.value to it.index }
-            TransferParseResult.Success(rows.drop(1).filterNot { row -> row.all(String::isBlank) }.mapIndexed { rowIndex, row ->
+            TransferParseResult.Success(rows.drop(1).mapIndexedNotNull { rowIndex, row ->
+                if (row.all(String::isBlank)) return@mapIndexedNotNull null
                 require(row.size == headers.size) { "CSV ${rowIndex + 2}行目の列数が一致しません" }
                 fun value(name: String): String = row[index.getValue(name)].trim()
                 LocationTransferRecord(

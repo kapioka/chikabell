@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.dp
 import com.chikabell.app.ui.components.WorkflowScaffold
 
 internal enum class AiSearchPage { SEARCH, RESULTS }
-internal enum class AiSheetPage { NONE, RANGE, OPTIONS, ACCOUNT, METHODS, IMPORT }
+internal enum class AiSheetPage { NONE, RANGE, OPTIONS, ACCOUNT, METHODS }
 
 @Composable
 internal fun AiSearchFormScreen(
@@ -83,23 +83,6 @@ internal fun SummaryAction(title: String, summary: String, onClick: () -> Unit, 
                 Text(summary, style = MaterialTheme.typography.bodyLarge)
             }
             Text("変更", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
-        }
-    }
-}
-
-/** Bounded editor: neither a long paste nor the IME may move the action off screen. */
-@Composable
-internal fun AiJsonPasteScreen(text: String, onText: (String) -> Unit, error: String?, onBack: () -> Unit, onPasteClipboard: () -> Unit, onPreview: () -> Unit) {
-    val focus = LocalFocusManager.current
-    val keyboard = LocalSoftwareKeyboardController.current
-    WorkflowScaffold(title = "JSONを取り込む", onBack = onBack,
-        actions = { TextButton(onClick = onPasteClipboard) { Text("貼り付け") } },
-        footer = {
-            Button(onClick = { focus.clearFocus(); keyboard?.hide(); onPreview() }, enabled = text.isNotBlank(), modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("取り込む場所を確認") }
-        }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            error?.let { Text(it, Modifier.heightIn(max = 80.dp).verticalScroll(rememberScrollState()), color = MaterialTheme.colorScheme.error) }
-            OutlinedTextField(text, onText, modifier = Modifier.fillMaxWidth().weight(1f), label = { Text("JSON本文") }, isError = error != null, textStyle = MaterialTheme.typography.bodyMedium)
         }
     }
 }

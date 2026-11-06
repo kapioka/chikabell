@@ -18,6 +18,8 @@ import com.chikabell.app.importexport.*
 import com.chikabell.app.share.AddressCoordinateCandidate
 import com.chikabell.app.ui.theme.ChikaBellTheme
 import com.chikabell.app.ui.locations.AddLocationMethodsSheet
+import com.chikabell.app.ui.locations.DataManagementScreen
+import com.chikabell.app.ui.locations.LocationsUiState
 import com.chikabell.siwc.ChatGptModel
 import org.junit.Assert.*
 import org.junit.Rule
@@ -54,6 +56,7 @@ class AiWorkflowUiDeviceTest {
                         { addMethods = false },
                         { addMethods = false; page = 1 },
                         { error("AI route must not open the manual editor") },
+                        { error("AI route must not open file import") },
                     )
                 }
             }
@@ -86,25 +89,11 @@ class AiWorkflowUiDeviceTest {
         compose.runOnIdle { assertEquals(1, connections) }
     }
 
-    @Test fun longJsonKeepsPreviewButtonAboveRealKeyboard() {
-        var previews = 0
-        compose.setContent {
-            var text by remember { mutableStateOf("{\n" + "  \"fictional\": \"test only\",\n".repeat(100) + "}") }
-            ChikaBellTheme { Box(Modifier.width(360.dp).fillMaxHeight()) { AiJsonPasteScreen(text, { text = it }, null, {}, {}, { previews++ }) } }
-        }
-        compose.onNode(hasSetTextAction()).performClick()
-        waitForKeyboard()
-        val action = compose.onNodeWithText("取り込む場所を確認").assertIsDisplayed().assertIsEnabled()
-        assertAboveKeyboard(action)
-        action.performClick()
-        compose.runOnIdle { assertEquals(1, previews) }
-    }
-
-    @Test fun actualImportSheetCollapsesLongJsonAndRetainsActionWhileEditing() {
+    @Test fun importScreenCollapsesLongJsonAndRetainsActionWhileEditing() {
         var previews = 0
         compose.setContent {
             var text by remember { mutableStateOf("{\n" + "fake\n".repeat(500) + "}") }
-            ChikaBellTheme { AiImportSheet(text, { text = it }, null, false, {}, {}, { previews++ }, {}) }
+            ChikaBellTheme { LocationImportScreen(text, { text = it }, null, false, {}, {}, { previews++ }, {}) }
         }
         compose.onNodeWithText("取り込む場所を確認").assertIsDisplayed().assertIsEnabled()
         compose.onNodeWithText("JSON本文").assertDoesNotExist()
@@ -117,15 +106,46 @@ class AiWorkflowUiDeviceTest {
         compose.runOnIdle { assertEquals(1, previews) }
     }
 
+    @Test fun dataManagementImportCanCorrectJsonAndReturnThroughItsOwnScreens() {
+        val invalid = "not JSON"
+        val valid = LocationTransferCodec.encodeImportJson(listOf(place.record))
+        compose.setContent {
+            ChikaBellTheme { DataManagementScreen(LocationsUiState(), {}, {}, {}, {}, {}, {}) }
+        }
+        compose.onNodeWithText("JSON・CSVから追加").performClick()
+        compose.onNodeWithText("地点を取り込む").assertIsDisplayed()
+        compose.onNodeWithText("JSON本文を入力・編集").performScrollTo().performClick()
+        compose.onNode(hasSetTextAction()).performScrollTo().performTextReplacement(invalid)
+        compose.onNodeWithText("取り込む場所を確認").performClick()
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithText("JSON本文を修正するか", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNode(hasSetTextAction()).performScrollTo().performTextReplacement(valid)
+        compose.onNodeWithText("取り込む場所を確認").performClick()
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithText("取り込む地点を確認").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("選択した0件を登録").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("戻る").performClick()
+        compose.onNodeWithText("JSON本文 ${valid.length}文字").assertExists()
+        compose.onNodeWithContentDescription("戻る").performClick()
+        compose.onNodeWithText("データ管理").assertIsDisplayed()
+    }
+
     @Test fun pasteAtLargeFontInShortViewportRetainsEditorAndAction() {
         compose.setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, 2f)) {
-                ChikaBellTheme { Box(Modifier.width(360.dp).height(520.dp)) { AiJsonPasteScreen("{\n" + "fake\n".repeat(100) + "}", {}, "JSON本文を確認してください", {}, {}, {}) } }
+                ChikaBellTheme {
+                    Box(Modifier.width(360.dp).height(520.dp)) {
+                        LocationImportScreen("{\n" + "fake\n".repeat(100) + "}", {}, "JSON本文を確認してください", false, {}, {}, {}, {})
+                    }
+                }
             }
         }
         val action = compose.onNodeWithText("取り込む場所を確認").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-        val editor = compose.onNode(hasSetTextAction()).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        compose.onNodeWithText("JSON本文を入力・編集").performScrollTo().performClick()
+        val editor = compose.onNode(hasSetTextAction()).performScrollTo().assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         assertTrue(editor.height > 40f)
         assertTrue(editor.bottom <= action.top)
     }

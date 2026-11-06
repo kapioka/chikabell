@@ -45,8 +45,8 @@ import com.chikabell.app.share.SharedIntentNormalizer
 import com.chikabell.app.share.SharedPlaceConfidence
 import com.chikabell.app.share.SharedPlaceEvent
 import com.chikabell.app.share.SystemAddressCandidateProvider
-import com.chikabell.app.importexport.LocationTransferCodec
 import com.chikabell.app.importexport.TransferFormat
+import com.chikabell.app.importexport.readTransferText
 import java.io.OutputStreamWriter
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
@@ -326,24 +326,6 @@ internal fun ChikaBellApp(sharedPlaceEvents: Flow<SharedPlaceDelivery> = emptyFl
                 .onFailure { viewModel.reportTransferMessage("CSV書き出しに失敗しました") }
         }
     }
-    val importJsonLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (uri != null) {
-            runCatching { readTransferText(context, uri) }
-                .onSuccess { viewModel.previewImport(it, TransferFormat.JSON) }
-                .onFailure { viewModel.reportTransferMessage("JSONを読み込めません: ${it.message ?: "不明なエラー"}") }
-        }
-    }
-    val importCsvLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (uri != null) {
-            runCatching { readTransferText(context, uri) }
-                .onSuccess { viewModel.previewImport(it, TransferFormat.CSV) }
-                .onFailure { viewModel.reportTransferMessage("CSVを読み込めません: ${it.message ?: "不明なエラー"}") }
-        }
-    }
 
     ChikaBellTheme {
         Surface(
@@ -417,8 +399,6 @@ internal fun ChikaBellApp(sharedPlaceEvents: Flow<SharedPlaceDelivery> = emptyFl
                 onCloseNearbySavedLocations = viewModel::closeNearbySavedLocations,
                 onExportJson = { exportJsonLauncher.launch("chikabell-backup.json") },
                 onExportCsv = { exportCsvLauncher.launch("chikabell-locations.csv") },
-                onImportJson = { importJsonLauncher.launch(arrayOf("application/json", "text/json", "text/plain")) },
-                onImportCsv = { importCsvLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain")) },
                 onConfirmImport = viewModel::confirmImport,
                 onToggleImportCandidate = viewModel::toggleImportCandidate,
                 onCancelImport = viewModel::cancelImport,
@@ -482,21 +462,6 @@ private fun writeTransferText(context: Context, uri: Uri, content: String) {
     OutputStreamWriter(stream, Charsets.UTF_8).use { it.write(content) }
 }
 
-private fun readTransferText(context: Context, uri: Uri): String {
-    val stream = context.contentResolver.openInputStream(uri) ?: error("ファイルを開けません")
-    return stream.bufferedReader(Charsets.UTF_8).use { reader ->
-        val result = StringBuilder()
-        val buffer = CharArray(8_192)
-        while (true) {
-            val count = reader.read(buffer)
-            if (count < 0) break
-            result.append(buffer, 0, count)
-            require(result.length <= LocationTransferCodec.MAX_FILE_CHARS) { "ファイルが2MB相当の上限を超えています" }
-        }
-        result.toString()
-    }
-}
-
 @Preview(showBackground = true)
 @Composable
 private fun ChikaBellPreview() {
@@ -534,8 +499,6 @@ private fun ChikaBellPreview() {
                 onCloseNearbySavedLocations = {},
                 onExportJson = {},
                 onExportCsv = {},
-                onImportJson = {},
-                onImportCsv = {},
                 onConfirmImport = {},
                 onCancelImport = {},
                 onHistoryFilterChange = {},

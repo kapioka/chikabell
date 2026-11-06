@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.chikabell.app.share.SystemAddressCandidateProvider
 import com.chikabell.app.ChikaBellApplication
 import com.chikabell.app.importexport.*
-import com.chikabell.app.share.AddressCoordinateCandidate
 import com.chikabell.siwc.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -29,12 +28,11 @@ data class AiSearchState(
     val usageLimit: Boolean = false,
     val welcome: Boolean = false,
     val imported: Boolean = false,
-    val format: TransferFormat = TransferFormat.JSON,
     val savedMessage: String? = null,
     val reviewVersion: Int = 0,
 )
 
-enum class AiOperation { NONE, CONNECTION, SEARCH, IMPORT, SAVE }
+enum class AiOperation { NONE, CONNECTION, SEARCH, SAVE }
 
 /** A missing saved model requires a deliberate choice; it never silently changes models. */
 fun resolveAiModel(saved: String?, available: List<ChatGptModel>): String =
@@ -83,8 +81,8 @@ class AiSearchViewModel(application: Application) : AndroidViewModel(application
                     val changed = error.preview
                     (changed.errors + listOfNotNull(if (changed.duplicateCount > 0) "${changed.duplicateCount}件は登録済みか、選択した候補と重複しています。対象の選択を外してください" else null)).joinToString("\n")
                         .ifBlank { "地点一覧が変わりました。選択した内容を確認してください" }
-                } else if (kind == AiOperation.SAVE || kind == AiOperation.IMPORT) {
-                    "登録内容を確認してください。通知半径・メモ・タグ・ファイルの形式が不正か、保存できませんでした"
+                } else if (kind == AiOperation.SAVE) {
+                    "登録内容を確認してください。通知半径・メモ・タグが不正か、保存できませんでした"
                 } else SiwcFailure.explanation(error)
                 mutable.update { it.copy(error = message, phase = "処理を完了できませんでした", usageLimit = error.message == "subscription_sharing_usage_limit_exceeded") }
             }
@@ -188,40 +186,17 @@ class AiSearchViewModel(application: Application) : AndroidViewModel(application
             return@run
         }
         selection.reset()
-        mutable.update { it.copy(review = review, reviewVersion = it.reviewVersion + 1, imported = false, format = TransferFormat.JSON, phase = "候補と位置を確認してください。まだ保存していません",
+        mutable.update { it.copy(review = review, reviewVersion = it.reviewVersion + 1, phase = "候補と位置を確認してください。まだ保存していません",
             searchEvidence = if (response.webSearchCompleted) "Web検索の実行完了を確認しました。出典と位置も確認してください。" else "Web検索の実行完了は確認できません。出典を個別に確認してください。",
             searchedFor = request.target + " / " + if (request.areaMode == SearchAreaMode.AREA) request.area else "送信した現在地から${request.distanceKm}km") }
     }
 
-    fun selectedJson(selected: Map<Int, Int>, edits: Map<Int, AiPlaceEdits>): String = verifier.selectedJson(state.value.review?.candidates.orEmpty(), selected, edits)
-    fun importText(content: String, format: TransferFormat = TransferFormat.JSON) = run(AiOperation.IMPORT) {
-        val parsed = if (format == TransferFormat.JSON) AiImportText.parse(content) else LocationTransferCodec.parseCsv(content)
-        require(parsed is TransferParseResult.Success)
-        val checked = LocationImportPlanner.preview(parsed.records, container.locationRepository.observeLocations().first(), format)
-        if (checked.errors.isNotEmpty()) {
-            mutable.update { it.copy(error = checked.errors.joinToString("\n")) }
-            return@run
-        }
-        if (checked.candidates.isEmpty()) {
-            mutable.update { it.copy(error = "追加できる新しい地点がありません。重複 ${checked.duplicateCount}件") }
-            return@run
-        }
-        val places = checked.candidates.map { candidate ->
-            val record = candidate.toTransferRecord()
-            AiPlaceToReview(record, listOf(AddressCoordinateCandidate("ファイルに記載された位置", record.latitude, record.longitude)))
-        }
-        selection.reset()
-        mutable.update { it.copy(review = AiPlaceVerificationResult(places, emptyList()), reviewVersion = it.reviewVersion + 1, imported = true, format = format,
-            searchedFor = "${format.name}から${places.size}件 · 重複${checked.duplicateCount}件を除外",
-            searchEvidence = "ファイルの座標です。施設の出典と地図を見比べ、位置を確認して選んでください。", phase = "登録する場所を確認してください") }
-    }
-
     fun register() = run(AiOperation.SAVE) {
-        val content = selectedJson(selection.selected, selection.edits)
+        val content = verifier.selectedJson(state.value.review?.candidates.orEmpty(), selection.selected, selection.edits)
         val records = (AiImportText.parse(content) as TransferParseResult.Success).records
-        val checked = LocationImportPlanner.preview(records, emptyList(), state.value.format)
+        val checked = LocationImportPlanner.preview(records, emptyList(), TransferFormat.JSON)
         require(checked.canApply)
-        val message = committer.commit(checked.candidates, state.value.format)
+        val message = committer.commit(checked.candidates, TransferFormat.JSON)
         mutable.update { it.copy(savedMessage = message) }
     }
     fun clearReview() { if (!state.value.busy) mutable.update { it.copy(review = null, searchedFor = "", error = null, searchEvidence = null) } }

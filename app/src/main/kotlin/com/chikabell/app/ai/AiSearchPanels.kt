@@ -43,7 +43,7 @@ internal fun AiReviewScreen(state: AiSearchState, selection: AiReviewSelection, 
     var notificationIndex by remember { mutableStateOf<Int?>(null) }
     var discardConfirm by remember { mutableStateOf(false) }
     var showExcluded by remember { mutableStateOf(false) }
-    WorkflowScaffold(title = "場所を確認して登録", onBack = onBack, backEnabled = !state.busy,
+    WorkflowScaffold(title = if (state.imported) "取り込む地点を確認" else "場所を確認して登録", onBack = onBack, backEnabled = !state.busy,
         actions = { TextButton(enabled = !state.busy, onClick = { discardConfirm = true }) { Text("破棄") } },
         footer = {
             if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -99,7 +99,7 @@ internal fun AiReviewScreen(state: AiSearchState, selection: AiReviewSelection, 
         }) {
             Text(place.record.name, style = MaterialTheme.typography.titleLarge)
             Text(place.record.message)
-            Text(if (state.imported) "ファイルに記載された位置です。地図と出典で確認してください。" else "住所検索の結果です。施設と位置が一致するか確認してください。")
+            Text(if (state.imported) "取り込んだデータの位置です。地図と出典で確認してください。" else "住所検索の結果です。施設と位置が一致するか確認してください。")
             place.record.sourceUrl?.takeIf(AiImportText::safeSource)?.let { url ->
                 TextButton(onClick = { open(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }) { Text("施設の出典を開く") }
             }
@@ -122,7 +122,9 @@ internal fun AiReviewScreen(state: AiSearchState, selection: AiReviewSelection, 
     notificationIndex?.let { index -> review?.candidates?.getOrNull(index)?.let { place ->
         AiNotificationSheet(place, selection.edits[index] ?: place.defaultEdits(), { selection.edits = selection.edits + (index to it); selection.validationError = null }, { notificationIndex = null })
     } }
-    if (discardConfirm) AlertDialog(onDismissRequest = { discardConfirm = false }, title = { Text("候補を破棄しますか？") }, text = { Text("選択と通知設定の編集を破棄します。検索条件は保持します。") },
+    if (discardConfirm) AlertDialog(onDismissRequest = { discardConfirm = false }, title = { Text("候補を破棄しますか？") }, text = {
+        Text(if (state.imported) "選択と通知設定の編集を破棄し、取り込み画面に戻ります。" else "選択と通知設定の編集を破棄します。検索条件は保持します。")
+    },
         confirmButton = { TextButton(onClick = { discardConfirm = false; onDiscard() }) { Text("破棄する") } }, dismissButton = { TextButton(onClick = { discardConfirm = false }) { Text("戻る") } })
 }
 
@@ -131,7 +133,7 @@ internal fun AiPlaceToReview.defaultEdits() = AiPlaceEdits(record.radiusMeters.t
 @Composable
 internal fun AiNotificationSheet(place: AiPlaceToReview, edit: AiPlaceEdits, onEdit: (AiPlaceEdits) -> Unit, onDismiss: () -> Unit) {
     var details by remember { mutableStateOf(false) }
-    val valid = runCatching { AiPlaceVerifier(com.chikabell.app.share.UnavailableAddressCandidateProvider).selectedJson(listOf(place), mapOf(0 to 0), mapOf(0 to edit)) }.isSuccess
+    val valid = runCatching { selectedReviewRecords(listOf(place), mapOf(0 to 0), mapOf(0 to edit)) }.isSuccess
     AiSheet("通知設定", onDismiss, footer = {
         if (!valid) Text("半径・メモ・タグ・通知の詳細を確認してください", color = MaterialTheme.colorScheme.error)
         Button(onClick = onDismiss, enabled = valid, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("この設定を使う") }

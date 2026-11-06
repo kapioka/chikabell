@@ -39,7 +39,7 @@ object LocationImportPlanner {
                 return@forEachIndexed
             }
             if (validationErrors.isNotEmpty()) {
-                errors += "${index + 1}件目の地点データが不正です: ${validationErrors.joinToString { it.name }}"
+                errors += "${index + 1}件目の入力を確認してください（${validationErrors.joinToString("、") { it.fieldName }}）"
                 return@forEachIndexed
             }
             val candidate = LocationImportCandidate(record.id, draft)
