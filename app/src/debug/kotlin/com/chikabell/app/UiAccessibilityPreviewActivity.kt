@@ -74,8 +74,6 @@ class UiAccessibilityPreviewActivity : ComponentActivity() {
                         onCloseNearbySavedLocations = {},
                         onExportJson = {},
                         onExportCsv = {},
-                        onImportJson = {},
-                        onImportCsv = {},
                         onConfirmImport = {},
                         onCancelImport = {},
                         onHistoryFilterChange = {},

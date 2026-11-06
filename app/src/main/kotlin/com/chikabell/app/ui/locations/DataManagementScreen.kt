@@ -19,7 +19,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.chikabell.app.ai.AiImportText
-import com.chikabell.app.ai.AiSearchActivity
+import com.chikabell.app.importexport.LocationImportActivity
 import com.chikabell.app.ui.components.WorkflowScaffold
 import com.chikabell.app.ui.components.WorkflowSectionTitle
 import com.chikabell.app.ui.components.displayCoordinates
@@ -30,8 +30,6 @@ internal fun DataManagementScreen(
     onBack: () -> Unit,
     onExportJson: () -> Unit,
     onExportCsv: () -> Unit,
-    onImportJson: () -> Unit,
-    onImportCsv: () -> Unit,
     onConfirmImport: () -> Unit,
     onToggleImportCandidate: (Int) -> Unit,
     onCancelImport: () -> Unit,
@@ -128,31 +126,33 @@ internal fun DataManagementScreen(
                 }
             } }
             item {
-                WorkflowSectionTitle("場所を取り込む", "ChatGPTの結果や地点ファイルから追加します。次に場所と通知を確認します。")
-                OutlinedButton(onClick = {
-                    context.startActivity(Intent(context, AiSearchActivity::class.java).putExtra(AiSearchActivity.EXTRA_PASTE, true))
-                }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("JSONを貼り付ける・ファイルを開く") }
-            }
-            item {
-                DataTransferSection("地点のバックアップ", "地点をJSONファイルに保存します。読み込むと、新しい地点だけを追加します。",
-                    "バックアップを保存（JSON）", "JSONファイルから追加", onExportJson, onImportJson)
-            }
-            item {
-                DataTransferSection("PCで編集・一括追加", "地点をCSVに書き出してPCで編集し、まとめて追加できます。",
-                    "編集用CSVを書き出す", "CSVファイルから追加", onExportCsv, onImportCsv)
-            }
-            item {
-                Text("保存したファイルには位置情報やメモが含まれます。安全な場所で管理してください。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text("地点データ", style = MaterialTheme.typography.titleLarge)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        WorkflowSectionTitle("追加する")
+                        DataTransferAction("JSON・CSVから追加", "JSONの貼り付け、バックアップや編集済みCSVの読み込み") {
+                            LocationImportActivity.open(context)
+                        }
+                    }
+                    HorizontalDivider()
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        WorkflowSectionTitle("書き出す")
+                        DataTransferAction("バックアップを保存（JSON）",
+                            "登録済みの地点を保存します。読み込むときは「JSON・CSVから追加」を使います。", onExportJson)
+                        DataTransferAction("PC編集用CSVを書き出す",
+                            "PCで編集できる形式で保存します。編集したCSVも「JSON・CSVから追加」から読み込めます。", onExportCsv)
+                        Text("保存したファイルには位置情報やメモが含まれます。安全な場所で管理してください。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun DataTransferSection(title: String, description: String, exportLabel: String, importLabel: String, onExport: () -> Unit, onImport: () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        WorkflowSectionTitle(title, description)
-        OutlinedButton(onClick = onExport, modifier = Modifier.fillMaxWidth()) { Text(exportLabel) }
-        OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) { Text(importLabel) }
+private fun DataTransferAction(label: String, description: String, onClick: () -> Unit) {
+    Column {
+        OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) { Text(label) }
+        Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

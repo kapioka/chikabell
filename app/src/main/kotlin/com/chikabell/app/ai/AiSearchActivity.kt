@@ -29,12 +29,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chikabell.app.MainActivity
 import com.chikabell.app.geofence.CurrentLocationReader
-import com.chikabell.app.importexport.*
+import com.chikabell.app.importexport.LocationImportActivity
 import com.chikabell.app.ui.theme.ChikaBellTheme
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class AiSearchActivity : ComponentActivity() {
     private var runtime: AiSearchViewModel? = null
@@ -58,11 +56,9 @@ class AiSearchActivity : ComponentActivity() {
                 var km by rememberSaveable { mutableIntStateOf(3) }
                 var external by rememberSaveable { mutableStateOf(false) }
                 var page by rememberSaveable { mutableStateOf(AiSearchPage.SEARCH) }
-                var sheet by rememberSaveable { mutableStateOf(if (intent.getBooleanExtra(EXTRA_PASTE, false)) AiSheetPage.IMPORT else AiSheetPage.NONE) }
-                // Precise location and copied JSON are transient; neither enters saved instance state.
+                var sheet by rememberSaveable { mutableStateOf(AiSheetPage.NONE) }
+                // Precise location is transient and never enters saved instance state.
                 var origin by remember { mutableStateOf<SearchOrigin?>(null) }
-                var jsonText by remember { mutableStateOf("") }
-                var pasteError by remember { mutableStateOf<String?>(null) }
                 var message by remember { mutableStateOf<String?>(null) }
                 var locating by remember { mutableStateOf(false) }
                 var confirmReplace by remember { mutableStateOf(false) }
@@ -90,31 +86,6 @@ class AiSearchActivity : ComponentActivity() {
                 }
                 val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
                     if (granted.values.any { it }) locate() else message = "位置情報が許可されていません。エリアを入力して検索できます"
-                }
-                val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-                    if (uri != null) lifecycleScope.launch {
-                        try {
-                            val data = withContext(Dispatchers.IO) {
-                                val mime = contentResolver.getType(uri).orEmpty()
-                                val name = contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else "" }.orEmpty()
-                                val format = if (mime.contains("csv") || name.endsWith(".csv", true)) TransferFormat.CSV else TransferFormat.JSON
-                                val content = contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { reader ->
-                                    val buffer = CharArray(8192)
-                                    val result = StringBuilder()
-                                    while (true) {
-                                        val n = reader.read(buffer)
-                                        if (n < 0) break
-                                        result.append(buffer, 0, n)
-                                        require(result.length <= LocationTransferCodec.MAX_FILE_CHARS)
-                                    }
-                                    result.toString()
-                                } ?: error("file_unavailable")
-                                content to format
-                            }
-                            vm.importText(data.first, data.second)
-                        } catch (cancelled: CancellationException) { throw cancelled }
-                        catch (_: Exception) { pasteError = "ファイルを読み込めません。2MB相当以内のJSON・CSVを選んでください" }
-                    }
                 }
                 LaunchedEffect(vm) { vm.foreground.value = lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) }
                 LaunchedEffect(state.reviewVersion) {
@@ -144,10 +115,11 @@ class AiSearchActivity : ComponentActivity() {
                     value.validate(now)?.let { message = it; if (mode == SearchAreaMode.DEVICE_LOCATION || area.isBlank()) sheet = AiSheetPage.RANGE; return }
                     val prompt = value.prompt(now)
                     (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("ちかベルの検索依頼", prompt))
+                    sheet = AiSheetPage.NONE
+                    LocationImportActivity.open(this@AiSearchActivity)
                     val direct = packageManager.getLaunchIntentForPackage("com.openai.chatgpt")
                     if (direct == null || runCatching { startActivity(direct) }.isFailure) open(Intent(Intent.ACTION_VIEW, Uri.parse("https://chatgpt.com/")))
                     message = "依頼文をコピーしました。ChatGPTに貼り付けて送信し、結果のJSONをコピーして戻ってください"
-                    sheet = AiSheetPage.IMPORT
                 }
                 fun searchNow() {
                     hideKeyboard(); message = null
@@ -183,24 +155,11 @@ class AiSearchActivity : ComponentActivity() {
                             external = false; if (mode == SearchAreaMode.CHATGPT_LOCATION) modeName = SearchAreaMode.AREA.name; sheet = AiSheetPage.NONE
                         })
                         SummaryAction("ChatGPTアプリで探す", "依頼文をコピーして結果を持ち帰る", { external = true; sheet = AiSheetPage.NONE })
-                        SummaryAction("結果を取り込む", "JSONを貼り付ける・ファイルを開く", { sheet = AiSheetPage.IMPORT })
+                        SummaryAction("結果を取り込む", "JSONを貼り付ける・ファイルを開く", {
+                            sheet = AiSheetPage.NONE
+                            LocationImportActivity.open(this@AiSearchActivity)
+                        })
                     }
-                    AiSheetPage.IMPORT -> AiImportSheet(jsonText, { jsonText = it.take(MAX_AI_TEXT_CHARS + 1); pasteError = null }, pasteError ?: state.error, state.busy,
-                        onPaste = {
-                            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            val copied = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text
-                            if (copied.isNullOrBlank()) pasteError = "コピーしたJSONがありません"
-                            else { jsonText = copied.take(MAX_AI_TEXT_CHARS + 1).toString(); pasteError = null }
-                        }, onFile = { filePicker.launch(arrayOf("application/json", "text/json", "text/csv", "text/comma-separated-values", "text/plain")) },
-                        onPreview = {
-                            hideKeyboard()
-                            val parsed = AiImportText.parse(jsonText)
-                            when {
-                                jsonText.length > MAX_AI_TEXT_CHARS -> pasteError = "AI結果が大きすぎます。件数を減らしてください"
-                                parsed is TransferParseResult.Failure -> pasteError = parsed.message
-                                else -> vm.importText(jsonText)
-                            }
-                        }, onDismiss = { hideKeyboard(); sheet = AiSheetPage.NONE })
                 }
                 if (confirmReplace) AlertDialog(onDismissRequest = { confirmReplace = false }, title = { Text("新しい条件で検索しますか？") }, text = { Text("成功したら確認中の候補を新しい結果に置き換えます。失敗・キャンセルの場合は候補を保持します。") },
                     confirmButton = { TextButton(onClick = { confirmReplace = false; searchNow() }) { Text("検索する") } }, dismissButton = { TextButton(onClick = { confirmReplace = false }) { Text("戻る") } })
@@ -210,7 +169,6 @@ class AiSearchActivity : ComponentActivity() {
         }
     }
     companion object {
-        const val EXTRA_PASTE = "com.chikabell.app.PASTE_JSON"
         const val EXTRA_IMPORT_JSON = "com.chikabell.app.IMPORT_JSON"
         const val MAX_AI_TEXT_CHARS = 100_000
         const val ACTION_SHOW_LOCATIONS = "com.chikabell.app.SHOW_LOCATIONS"

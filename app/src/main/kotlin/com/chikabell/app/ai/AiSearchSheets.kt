@@ -10,7 +10,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
@@ -117,20 +116,4 @@ internal fun AiAccountSheet(state: AiSearchState, onSelect: (String) -> Unit, on
     }
     if (disconnect) AlertDialog(onDismissRequest = { disconnect = false }, title = { Text("接続を解除しますか？") }, text = { Text("端末内の接続情報を削除し、ChatGPTへ解除を要求します。登録した場所は保持します。") },
         confirmButton = { TextButton(onClick = { disconnect = false; onDisconnect() }) { Text("接続を解除") } }, dismissButton = { TextButton(onClick = { disconnect = false }) { Text("戻る") } })
-}
-
-@Composable
-internal fun AiImportSheet(text: String, onText: (String) -> Unit, error: String?, busy: Boolean, onPaste: () -> Unit, onFile: () -> Unit, onPreview: () -> Unit, onDismiss: () -> Unit) {
-    var edit by rememberSaveable { mutableStateOf(false) }
-    AiSheet("結果を取り込む", onDismiss, footer = {
-        Button(onClick = onPreview, enabled = text.isNotBlank() && !busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(if (busy) "確認しています…" else "取り込む場所を確認") }
-    }) {
-        Text("ChatGPTでコピーしたJSON、または地点ファイルを読み込み、登録する場所を確認します。")
-        OutlinedButton(onClick = onPaste, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("コピーしたJSONを貼り付ける") }
-        OutlinedButton(onClick = onFile, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("JSON・CSVファイルを選ぶ") }
-        if (text.isNotBlank()) Text("${text.length}文字のJSONを読み込みました", style = MaterialTheme.typography.bodyMedium)
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        TextButton(onClick = { edit = !edit }) { Text(if (edit) "本文を閉じる" else "JSON本文を入力・編集") }
-        if (edit) OutlinedTextField(text, onText, label = { Text("JSON本文") }, modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 220.dp), isError = error != null)
-    }
 }

@@ -211,8 +211,6 @@ fun LocationsScreen(
     onCloseNearbySavedLocations: () -> Unit,
     onExportJson: () -> Unit,
     onExportCsv: () -> Unit,
-    onImportJson: () -> Unit,
-    onImportCsv: () -> Unit,
     onConfirmImport: () -> Unit,
     onCancelImport: () -> Unit,
     onHistoryFilterChange: (HistoryFilter) -> Unit,
@@ -472,8 +470,6 @@ fun LocationsScreen(
             onBack = { navigate(AppScreen.SETTINGS) },
             onExportJson = onExportJson,
             onExportCsv = onExportCsv,
-            onImportJson = onImportJson,
-            onImportCsv = onImportCsv,
             onConfirmImport = onConfirmImport,
             onToggleImportCandidate = onToggleImportCandidate,
             onCancelImport = onCancelImport,
@@ -619,6 +615,10 @@ private fun LocationsHomeScreen(
             showAddMethods = false
             onFormChange(LocationFormState())
             onNavigate(AppScreen.LOCATION_EDIT)
+        },
+        onImport = {
+            showAddMethods = false
+            com.chikabell.app.importexport.LocationImportActivity.open(addContext)
         },
     )
     Scaffold(
@@ -779,7 +779,7 @@ private fun LocationsHomeScreen(
 }
 
 @Composable
-internal fun AddLocationMethodsSheet(onDismiss: () -> Unit, onAi: () -> Unit, onManual: () -> Unit) {
+internal fun AddLocationMethodsSheet(onDismiss: () -> Unit, onAi: () -> Unit, onManual: () -> Unit, onImport: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surface) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 24.dp),
@@ -788,6 +788,7 @@ internal fun AddLocationMethodsSheet(onDismiss: () -> Unit, onAi: () -> Unit, on
             Text("地点の追加方法", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             AddLocationMethod("AIで探す", "探したい場所や条件から候補を見つけます", onAi)
             AddLocationMethod("自分で入力する", "場所の名前・住所・位置を入力して追加します", onManual)
+            AddLocationMethod("JSON・CSVから追加", "コピーしたJSONや地点ファイルを取り込みます", onImport)
         }
     }
 }

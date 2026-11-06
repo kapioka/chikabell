@@ -9,6 +9,7 @@ import com.chikabell.app.importexport.LocationTransferCodec
 import com.chikabell.app.importexport.LocationTransferRecord
 import com.chikabell.app.importexport.TransferFormat
 import com.chikabell.app.importexport.TransferParseResult
+import com.chikabell.app.importexport.detectTransferFormat
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -45,6 +46,27 @@ class LocationTransferCodecTest {
         assertTrue(exported.startsWith("\uFEFF"))
         assertEquals("店,\"A\"", parsed.records.single().name)
         assertEquals("1行\n2行", parsed.records.single().message)
+    }
+
+    @Test
+    fun genericDocumentProvidersCanSupplyBothExportFormats() {
+        val saved = location()
+        val json = LocationTransferCodec.exportJson(listOf(saved), 123L, "0.1.0")
+        val csv = LocationTransferCodec.exportCsv(listOf(saved))
+
+        assertEquals(TransferFormat.JSON, detectTransferFormat("", "text/plain", json))
+        assertEquals(TransferFormat.CSV, detectTransferFormat("", "text/plain", csv))
+        assertEquals(TransferFormat.CSV, detectTransferFormat("edited.CSV", "application/octet-stream", csv))
+        assertEquals(null, detectTransferFormat("notes.txt", "text/plain", "plain text"))
+    }
+
+    @Test
+    fun csvFailureIdentifiesMissingColumnsAndCountsBlankRecords() {
+        val missing = LocationTransferCodec.parseCsv("name,latitude,longitude") as TransferParseResult.Failure
+        assertTrue(missing.message.contains("radiusMeters"))
+        val csv = "name,latitude,longitude,radiusMeters,message,cooldownMinutes,transitionType,enabled\n\nA,broken,135,300,m,60,DWELL,true"
+        val invalid = LocationTransferCodec.parseCsv(csv) as TransferParseResult.Failure
+        assertTrue(invalid.message.contains("3行目の緯度"))
     }
 
     @Test

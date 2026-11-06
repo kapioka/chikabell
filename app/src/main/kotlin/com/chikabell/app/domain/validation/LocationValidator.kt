@@ -40,12 +40,12 @@ object LocationValidator {
     }
 }
 
-enum class LocationValidationError {
-    Name,
-    Message,
-    Latitude,
-    Longitude,
-    Radius,
-    LoiteringDelay,
-    Cooldown,
+enum class LocationValidationError(val fieldName: String) {
+    Name("地点名"),
+    Message("メモ"),
+    Latitude("緯度"),
+    Longitude("経度"),
+    Radius("通知半径"),
+    LoiteringDelay("滞在判定までの時間"),
+    Cooldown("再通知間隔"),
 }

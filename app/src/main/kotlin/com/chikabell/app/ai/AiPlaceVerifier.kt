@@ -42,22 +42,29 @@ class AiPlaceVerifier(private val addressProvider: AddressCandidateProvider) {
         return AiPlaceVerificationResult(accepted, excluded)
     }
 
-    fun selectedJson(candidates: List<AiPlaceToReview>, selectedCoordinates: Map<Int, Int>, edits: Map<Int, AiPlaceEdits> = emptyMap()): String {
-        require(selectedCoordinates.isNotEmpty()) { "登録する地点と位置候補を選んでください" }
-        val selected = selectedCoordinates.entries.sortedBy { it.key }.map { (index, coordinateIndex) ->
-            val candidate = candidates.getOrNull(index) ?: error("選択が不正です")
-            val coordinate = candidate.coordinates.getOrNull(coordinateIndex) ?: error("位置選択が不正です")
-            val edited = edits[index]
-            candidate.record.copy(latitude = coordinate.latitude, longitude = coordinate.longitude,
-                radiusMeters = edited?.radiusMeters?.toIntOrNull() ?: if (edited == null) candidate.record.radiusMeters else error("通知半径を整数で入力してください"),
-                message = edited?.message ?: candidate.record.message,
-                loiteringDelaySeconds = edited?.loiteringDelaySeconds?.let { it.toIntOrNull() ?: error("滞在時間を整数で入力してください") } ?: candidate.record.loiteringDelaySeconds,
-                cooldownMinutes = edited?.cooldownMinutes?.let { it.toLongOrNull() ?: error("再通知までの時間を整数で入力してください") } ?: candidate.record.cooldownMinutes,
-                enabled = edited?.enabled ?: candidate.record.enabled,
-                tags = edited?.tags?.split('|')?.map(String::trim)?.filter(String::isNotEmpty) ?: candidate.record.tags)
-        }
-        val preview = LocationImportPlanner.preview(selected, emptyList(), TransferFormat.JSON)
-        require(preview.errors.isEmpty()) { "通知半径・メモ・タグを確認してください。タグは最大5件・各30文字です" }
-        return LocationTransferCodec.encodeImportJson(selected)
+    fun selectedJson(candidates: List<AiPlaceToReview>, selectedCoordinates: Map<Int, Int>, edits: Map<Int, AiPlaceEdits> = emptyMap()): String =
+        LocationTransferCodec.encodeImportJson(selectedReviewRecords(candidates, selectedCoordinates, edits))
+}
+
+internal fun selectedReviewRecords(
+    candidates: List<AiPlaceToReview>,
+    selectedCoordinates: Map<Int, Int>,
+    edits: Map<Int, AiPlaceEdits>,
+): List<LocationTransferRecord> {
+    require(selectedCoordinates.isNotEmpty()) { "登録する地点と位置候補を選んでください" }
+    val selected = selectedCoordinates.entries.sortedBy { it.key }.map { (index, coordinateIndex) ->
+        val candidate = candidates.getOrNull(index) ?: error("選択が不正です")
+        val coordinate = candidate.coordinates.getOrNull(coordinateIndex) ?: error("位置選択が不正です")
+        val edited = edits[index]
+        candidate.record.copy(latitude = coordinate.latitude, longitude = coordinate.longitude,
+            radiusMeters = edited?.radiusMeters?.toIntOrNull() ?: if (edited == null) candidate.record.radiusMeters else error("通知半径を整数で入力してください"),
+            message = edited?.message ?: candidate.record.message,
+            loiteringDelaySeconds = edited?.loiteringDelaySeconds?.let { it.toIntOrNull() ?: error("滞在時間を整数で入力してください") } ?: candidate.record.loiteringDelaySeconds,
+            cooldownMinutes = edited?.cooldownMinutes?.let { it.toLongOrNull() ?: error("再通知までの時間を整数で入力してください") } ?: candidate.record.cooldownMinutes,
+            enabled = edited?.enabled ?: candidate.record.enabled,
+            tags = edited?.tags?.split('|')?.map(String::trim)?.filter(String::isNotEmpty) ?: candidate.record.tags)
     }
+    val preview = LocationImportPlanner.preview(selected, emptyList(), TransferFormat.JSON)
+    require(preview.errors.isEmpty()) { "通知半径・メモ・タグを確認してください。タグは最大5件・各30文字です" }
+    return selected
 }
